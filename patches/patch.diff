@@ -1,0 +1,1509 @@
+diff --git a/chrome/browser/component_updater/subresource_filter_component_installer.cc b/chrome/browser/component_updater/subresource_filter_component_installer.cc
+index cd1ffa3..9a18c53 100644
+--- a/chrome/browser/component_updater/subresource_filter_component_installer.cc
++++ b/chrome/browser/component_updater/subresource_filter_component_installer.cc
+@@ -17,6 +17,9 @@
+ #include "components/subresource_filter/core/browser/subresource_filter_constants.h"
+ #include "components/subresource_filter/core/browser/subresource_filter_features.h"
+ 
++// @SB
++#include "components/subresource_filter/core/common/common_features.h"
++
+ using component_updater::ComponentUpdateService;
+ 
+ namespace component_updater {
+@@ -149,8 +152,12 @@ SubresourceFilterComponentInstallerPolicy::GetMimeTypes() const {
+ }
+ 
+ void RegisterSubresourceFilterComponent(ComponentUpdateService* cus) {
++  // @SB
++  // Register the filter component when AdTagging is enabled.
+   if (!base::FeatureList::IsEnabled(
+-          subresource_filter::kSafeBrowsingSubresourceFilter)) {
++          subresource_filter::kSafeBrowsingSubresourceFilter) &&
++      !base::FeatureList::IsEnabled(
++          subresource_filter::kAdTagging)) {
+     return;
+   }
+ 
+diff --git a/chrome/renderer/chrome_content_renderer_client.cc b/chrome/renderer/chrome_content_renderer_client.cc
+index af2fc4e..0af9549 100644
+--- a/chrome/renderer/chrome_content_renderer_client.cc
++++ b/chrome/renderer/chrome_content_renderer_client.cc
+@@ -192,6 +192,9 @@
+ #endif  // BUILDFLAG(HAS_SPELLCHECK_PANEL)
+ #endif  // BUILDFLAG(ENABLE_SPELLCHECK)
+ 
++// @SB
++#include "components/subresource_filter/core/common/common_features.h"
++
+ using autofill::AutofillAgent;
+ using autofill::PasswordAutofillAgent;
+ using autofill::PasswordGenerationAgent;
+diff --git a/components/subresource_filter/core/browser/subresource_filter_features.cc b/components/subresource_filter/core/browser/subresource_filter_features.cc
+index 3555c7f..70e5ffa 100644
+--- a/components/subresource_filter/core/browser/subresource_filter_features.cc
++++ b/components/subresource_filter/core/browser/subresource_filter_features.cc
+@@ -287,7 +287,10 @@ Configuration Configuration::MakePresetForPerformanceTestingDryRunOnAllSites() {
+   Configuration config(mojom::ActivationLevel::kDryRun,
+                        ActivationScope::ALL_SITES);
+   config.activation_options.performance_measurement_rate = 0.01;
+-  config.activation_conditions.priority = 500;
++  // @SB
++  // Increased priority in order to ensure AdTagging runs on all sites (necessary?)
++  config.activation_conditions.priority = 1500;
++
+   return config;
+ }
+ 
+diff --git a/third_party/blink/renderer/bindings/core/v8/script_controller.cc b/third_party/blink/renderer/bindings/core/v8/script_controller.cc
+index abaa977..0064a9f 100644
+--- a/third_party/blink/renderer/bindings/core/v8/script_controller.cc
++++ b/third_party/blink/renderer/bindings/core/v8/script_controller.cc
+@@ -71,6 +71,9 @@
+ #include "third_party/blink/renderer/platform/wtf/text/string_builder.h"
+ #include "third_party/blink/renderer/platform/wtf/time.h"
+ 
++// @SB
++#include "third_party/blink/renderer/shadowblock/logging.h"
++
+ namespace blink {
+ 
+ void ScriptController::Trace(blink::Visitor* visitor) {
+@@ -130,6 +133,16 @@ v8::Local<v8::Value> ScriptController::ExecuteScriptAndReturnValue(
+              .ToLocal(&script))
+       return result;
+ 
++    // @SB
++    // Here we capture script ids because there might be cases where
++    // id is present but url is not
++    GetFrame()->GetDocument()->callstack.RegisterScriptId(script->GetUnboundScript()->GetId());
++#if PRINT_CALLSTACK_STATS
++    std::cout << "[SB-Debug][Callstack] New script execution: Id - " << script->GetUnboundScript()->GetId()
++              << " | Url - " << source.Url()
++              << std::endl;
++#endif
++
+     v8::MaybeLocal<v8::Value> maybe_result;
+     maybe_result = V8ScriptRunner::RunCompiledScript(GetIsolate(), script,
+                                                      GetFrame()->GetDocument());
+diff --git a/third_party/blink/renderer/bindings/core/v8/source_location.cc b/third_party/blink/renderer/bindings/core/v8/source_location.cc
+index 476a14a..3e3ab85 100644
+--- a/third_party/blink/renderer/bindings/core/v8/source_location.cc
++++ b/third_party/blink/renderer/bindings/core/v8/source_location.cc
+@@ -201,4 +201,19 @@ String SourceLocation::ToString() const {
+   return ToCoreString(stack_trace_->toString());
+ }
+ 
++// @SB
++// This method returns unique script ids that are in
++// the StackTrace
++String SourceLocation::ToUniqueScriptIdString() const {
++  if (!stack_trace_)
++    return String();
++  return ToCoreString(stack_trace_->toUniqueScriptIdString());
++}
++
++String SourceLocation::ToUniqueScriptUrlString() const {
++  if (!stack_trace_)
++    return String();
++  return ToCoreString(stack_trace_->toUniqueScriptUrlString());
++}
++
+ }  // namespace blink
+diff --git a/third_party/blink/renderer/bindings/core/v8/source_location.h b/third_party/blink/renderer/bindings/core/v8/source_location.h
+index 5ed4a1a..8cf65a9 100644
+--- a/third_party/blink/renderer/bindings/core/v8/source_location.h
++++ b/third_party/blink/renderer/bindings/core/v8/source_location.h
+@@ -68,6 +68,12 @@ class CORE_EXPORT SourceLocation {
+   // Could be null string when stack trace is unknown.
+   String ToString() const;
+ 
++  // @SB
++  // Parse string from V8 using ids
++  String ToUniqueScriptIdString() const;
++  // Parse string from V8 using urls
++  String ToUniqueScriptUrlString() const;
++
+   // Could be null when stack trace is unknown.
+   std::unique_ptr<v8_inspector::protocol::Runtime::API::StackTrace>
+   BuildInspectorObject() const;
+diff --git a/third_party/blink/renderer/core/BUILD.gn b/third_party/blink/renderer/core/BUILD.gn
+index 107f8ae..5f01ae33 100644
+--- a/third_party/blink/renderer/core/BUILD.gn
++++ b/third_party/blink/renderer/core/BUILD.gn
+@@ -172,6 +172,9 @@ component("core") {
+     "//v8",
+   ]
+   deps = [
++    # @SB
++    "//third_party/blink/renderer/shadowblock",
++
+     "//third_party/blink/public/common",
+     "//third_party/blink/renderer/core/accessibility",
+     "//third_party/blink/renderer/core/animation",
+diff --git a/third_party/blink/renderer/core/css/css_computed_style_declaration.cc b/third_party/blink/renderer/core/css/css_computed_style_declaration.cc
+index 38db457..bbee695 100644
+--- a/third_party/blink/renderer/core/css/css_computed_style_declaration.cc
++++ b/third_party/blink/renderer/core/css/css_computed_style_declaration.cc
+@@ -368,8 +368,18 @@ const CSSValue* CSSComputedStyleDeclaration::GetPropertyCSSValue(
+ 
+   const CSSValue* value = property_class.CSSValueFromComputedStyle(
+       *style, layout_object, styled_node, allow_visited_style_);
+-  if (value)
+-    return value;
++  // @SB
++  // Intercept the point that is responsible for returning the value
++  // of visibility 
++  if (value) {
++    if (property_class.IDEquals(CSSPropertyVisibility) && 
++        value->CssText() == "fake-visible") {
++      // always return visible to fool the anti-adblockers
++      return CSSIdentifierValue::Create(EVisibility::kVisible); 
++    } else {
++      return value;
++    }
++  }
+ 
+   LogUnimplementedPropertyID(property_class);
+   return nullptr;
+diff --git a/third_party/blink/renderer/core/css/css_properties.json5 b/third_party/blink/renderer/core/css/css_properties.json5
+index 6ffc1ab..fad3363 100644
+--- a/third_party/blink/renderer/core/css/css_properties.json5
++++ b/third_party/blink/renderer/core/css/css_properties.json5
+@@ -3331,7 +3331,9 @@
+       interpolable: true,
+       inherited: true,
+       field_template: "keyword",
+-      keywords: ["visible", "hidden", "collapse"],
++      // @SB
++      // Add new enumerate to faciliate stealthy adblocking
++      keywords: ["visible", "hidden", "collapse", "fake-visible"],
+       typedom_types: ["Keyword"],
+       default_value: "visible",
+     },
+diff --git a/third_party/blink/renderer/core/css/css_value_keywords.json5 b/third_party/blink/renderer/core/css/css_value_keywords.json5
+index d896714..763ad97 100644
+--- a/third_party/blink/renderer/core/css/css_value_keywords.json5
++++ b/third_party/blink/renderer/core/css/css_value_keywords.json5
+@@ -440,6 +440,9 @@
+     // visibility
+     //
+     "visible",
++    // @SB
++    // Add corresponding keyword value to faciliate stealthy adblocking
++    "fake-visible",
+     //hidden
+     "collapse",
+     //
+diff --git a/third_party/blink/renderer/core/css/resolver/style_adjuster.cc b/third_party/blink/renderer/core/css/resolver/style_adjuster.cc
+index a358499..89a10da 100644
+--- a/third_party/blink/renderer/core/css/resolver/style_adjuster.cc
++++ b/third_party/blink/renderer/core/css/resolver/style_adjuster.cc
+@@ -722,5 +722,39 @@ void StyleAdjuster::AdjustComputedStyle(StyleResolverState& state,
+       ShouldForceLegacyLayout(style, layout_parent_style, *element)) {
+     style.SetForceLegacyLayout(true);
+   }
++
++  // @SB
++  // Hiding logic goes here
++  // First, check the presence of element
++  if (element) {
++    // If it's newly marked and has not been hidden yet. We hide it
++    if (element->IsAd() && style.Visibility() == EVisibility::kVisible) {
++      style.SetVisibility(EVisibility::kFakeVisible);
++#if PRINT_ELEMENT_HIDING_STATS
++      element->GetDocument().ReportHiddenAd();
++#endif
++    
++    // If it's unmarked because of element hiding rule un-matching, and has been
++    // hidden. We un-hide it
++    } else if (!element->IsAd() && style.Visibility() == EVisibility::kFakeVisible &&
++               element->HasBeenElemHideMatch()) {
++      style.SetVisibility(EVisibility::kVisible);
++#if PRINT_ELEMENT_HIDING_STATS
++      element->GetDocument().ReportUnhiddenAd();
++#endif
++    
++    // If its parent element is ad and it has not been hidden yet. We set is as ad
++    // and hide it
++    } else if (!element->IsAd() && element->parentElement() &&
++               element->parentElement()->IsAd() &&
++               style.Visibility() != EVisibility::kFakeVisible) {
++      element->SetIsAd();
++      style.SetVisibility(EVisibility::kFakeVisible);
++#if PRINT_ELEMENT_HIDING_STATS
++      element->GetDocument().ReportMarkedAd();
++      element->GetDocument().ReportHiddenAd();
++#endif
++    }
++  }
+ }
+ }  // namespace blink
+diff --git a/third_party/blink/renderer/core/dom/document.cc b/third_party/blink/renderer/core/dom/document.cc
+index 79137c8..80bf814 100644
+--- a/third_party/blink/renderer/core/dom/document.cc
++++ b/third_party/blink/renderer/core/dom/document.cc
+@@ -31,6 +31,18 @@
+ 
+ #include <memory>
+ 
++// @SB
++// System libraries for supporting Socket
++#include <stdio.h>
++#include <sys/socket.h>
++#include <stdlib.h>
++#include <netinet/in.h>
++#include <string.h>
++#include <arpa/inet.h>
++#include <unistd.h>
++// Logging
++#include "third_party/blink/renderer/shadowblock/logging.h"
++
+ #include "base/auto_reset.h"
+ #include "base/macros.h"
+ #include "base/optional.h"
+@@ -585,6 +597,124 @@ class Document::NetworkStateObserver final
+       online_observer_handle_;
+ };
+ 
++// @SB
++// Methods used by stats reporting module
++void Document::PrintShadowBlockStats() {
++  std::cout << "[SB-Info][All] Num of marked ads: " << GetNumMarkedAds()
++            << " | Num of hidden ads: " << GetNumHiddenAds()
++            << std::endl;
++}
++
++// Methods used by element hiding module
++bool Document::DownloadElemHideCssSelectors() {
++  String downloaded_css_string = GetElemHideCssSelectorsOfUrl(url_.GetString());
++  // Set the flag properly so for **this Document** no
++  // HTML rules download will be attmpted
++  if (downloaded_css_string == "") {
++    std::cout << "[SB-Error][ElemHide] ElemHide module is activated but no socket server found"
++              << std::endl;
++    SetNeedNotDownloadElemHideCssSelectors();
++    return false;
++  }
++  SetShadowBlockCssSelectors(downloaded_css_string);
++  SetNeedNotDownloadElemHideCssSelectors();
++  return true;
++}
++
++String Document::GetElemHideCssSelectorsOfUrl(String url) {
++  return SendAndReceiveSocketMsg(url, kShadowBlockCssSocketServerIp);
++}
++
++bool Document::HasDesirableDomEventFired() const {
++  // Currently we use LoadEventStart as the event, as mentioned in
++  // the paper. You may change this to adjust the trade-off between
++  // the short period of ad-visible time and performance
++  if (Loader())
++    return !Loader()->GetTiming().LoadEventStart().is_null();
++  else
++    return false;
++}
++
++// Use system socket library (C-style)
++// FIXME: switch to Chromium's internal library
++String Document::SendAndReceiveSocketMsg(String msg, String ip_addr) {
++  int sock = 0;
++  ssize_t msg_code = 0;
++  int msg_len = 0;
++  struct sockaddr_in server_addr;
++
++  std::string ip_addr_char(ip_addr.Utf8().data());
++  // Overall buffer, supposed to contain a very long string (up to ~20000 selectors)
++  char msg_buffer[SHADOWBLOCK_CSS_SOCKET_MSG_BUFFER_LEN] = {0};
++  // Buffer for one segment of the long selector string
++  char msg_segment_buffer[SHADOWBLOCK_CSS_SOCKET_MSG_SEGMENT_BUFFER_LEN] = {0};
++
++  if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
++    std::cout << "[SB-Error][ElemHide] Socket creation error"
++              << std::endl;
++    return "";
++  }
++
++  // Manual initialization because we are writing C
++  memset(&server_addr, '0', sizeof(server_addr));
++
++  server_addr.sin_family = AF_INET;
++  server_addr.sin_port = htons(kShadowBlockCssSocketServerPort);
++
++  if (inet_pton(AF_INET, ip_addr_char.c_str(), &server_addr.sin_addr) <= 0) {
++    std::cout << "[SB-Error][ElemHide] Invalid address"
++              << std::endl;
++    return "";
++  }
++
++  if (connect(sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
++    std::cout << "[SB-Error][ElemHide] Connection failed"
++              << std::endl;
++    return "";
++  }
++  
++  // Send the URL
++  send(sock, msg.Utf8().data(), strlen(msg.Utf8().data()), 0);
++#if PRINT_SOCKET_SERVER_INFO
++  std::cout << "[SB-Info][ElemHide] Requesting HTML rules for URL: "
++            << msg.Utf8().data()
++            << std::endl;
++#endif
++
++  // Busy-waiting with a big while loop until we receive the response
++  while (TRUE) {
++    msg_code = read(sock, msg_segment_buffer, kShadowBlockCssSocketMsgSegmentBufferLen);
++    // Code that's > 0 means the message is received and the code in this case
++    // is the length of the message
++    if (msg_code > 0) {
++      memcpy(msg_buffer + msg_len, msg_segment_buffer, strlen(msg_segment_buffer));
++      msg_len += msg_code;
++
++      // We specify a unique ending substring to indicate the end of reception
++      if (String(msg_segment_buffer).Contains("NOTVERYUNIQUESTRING")) {
++        break;
++      }
++    } else {
++      break;
++    }
++  };
++
++#if PRINT_SOCKET_SERVER_INFO
++  std::cout << "[SB-Info][ElemHide] Length of received selectors: "
++            << msg_len
++            << std::endl;
++#endif
++  // Append a "0" to manually indicate the termination
++  msg_buffer[msg_len] = '\0';
++  // Convert the raw C string to a WTF::String
++  String msg_string = String(msg_buffer);
++  // Close the socket
++  ::close(sock);
++  if (msg_string == "\0")
++    return "";
++  return msg_string;
++}
++
+ Document* Document::CreateForTest() {
+   return MakeGarbageCollected<Document>(DocumentInit::Create());
+ }
+@@ -716,6 +846,11 @@ Document::Document(const DocumentInit& initializer,
+         ->ProvideDocumentToResourceFetcherProperties(*this);
+     fetcher_->SetConsoleLogger(this);
+ 
++    // @SB
++    this->callstack.SetDocument(this);
++    this->callstack.SetAdTracker(this->GetFrame()->GetAdTracker());
++    this->callstack.SetFilter(this->GetFrame()->Loader().GetDocumentLoader()->GetSubresourceFilter());
++    
+     // TODO(dcheng): Why does this need to check that DOMWindow is non-null?
+     CustomElementRegistry* registry =
+         frame_->DomWindow() ? frame_->DomWindow()->MaybeCustomElements()
+@@ -4045,6 +4180,22 @@ void Document::SetURL(const KURL& url) {
+   if (new_url == url_)
+     return;
+ 
++  // @SB
++  // Download HTML CSS rules when navigated to a **new** URL
++  if (GetFrame() && GetFrame()->IsMainFrame() && this == TopDocument()) {
++    // There are some internal URLs we don't need to hide ads
++    if ((new_url.GetString().StartsWith("http://") ||
++        new_url.GetString().StartsWith("https://")) &&
++        !new_url.GetString().Contains("www.google.com/_/chrome/newtab")){
++#if PRINT_ELEMENT_HIDING_STATS || PRINT_ELEMENT_HIDING_STATS
++      PrintShadowBlockStats();
++#endif
++#if ENABLE_HTML_RULES
++      SetNeedDownloadElemHideCssSelectors();
++#endif
++    }
++  }
++
+   url_ = new_url;
+   access_entry_from_url_ = nullptr;
+   UpdateBaseURL();
+diff --git a/third_party/blink/renderer/core/dom/document.h b/third_party/blink/renderer/core/dom/document.h
+index fa6f25f..9b632e2 100644
+--- a/third_party/blink/renderer/core/dom/document.h
++++ b/third_party/blink/renderer/core/dom/document.h
+@@ -74,6 +74,10 @@
+ #include "third_party/blink/renderer/platform/wtf/casting.h"
+ #include "third_party/blink/renderer/platform/wtf/hash_set.h"
+ 
++// @SB
++#include "third_party/blink/renderer/shadowblock/callstack.h"
++#include "third_party/blink/renderer/shadowblock/shadowblock.h"
++
+ namespace base {
+ class SingleThreadTaskRunner;
+ }
+@@ -244,6 +248,38 @@ class CORE_EXPORT Document : public ContainerNode,
+   USING_GARBAGE_COLLECTED_MIXIN(Document);
+ 
+  public:
++  // @SB
++  // A bunch of objects/methods used by ShadowBlock
++  ShadowBlock::Callstack callstack;
++
++  // These are for keeping track of marked/hidden elements
++  inline int GetNumHiddenAds() { return num_hidden_ads_; }
++  inline int GetNumMarkedAds() { return num_marked_ads_; }
++  void PrintShadowBlockStats();
++  inline void ReportHiddenAd() { num_hidden_ads_ += 1; }
++  inline void ReportUnhiddenAd() { num_hidden_ads_ -= 1; }
++  inline void ReportMarkedAd() { num_marked_ads_ += 1; }
++  inline void ReportUnmarkedAd() { num_marked_ads_ -= 1; }
++
++  // Fields related to element hiding functionality
++  bool HasDesirableDomEventFired() const;
++  bool HasElemHideCssSelectors() const { return shadowblock_css_selectors_ != ""; }
++
++  // We should download CSS string anytime we navigate to a new URL
++  void SetNeedDownloadElemHideCssSelectors() { need_download_elem_hide_selectors_ = true; }
++  void SetNeedNotDownloadElemHideCssSelectors() { need_download_elem_hide_selectors_ = false; }
++  bool NeedDownloadElemHideCssSelectors() { return need_download_elem_hide_selectors_; }
++  bool DownloadElemHideCssSelectors();
++  
++  // Socket-related methods that downloads CSS rules from Web
++  String GetElemHideCssSelectorsOfUrl(String);
++  String SendAndReceiveSocketMsg(String, String);
++
++  String GetShadowBlockCssSelectors() const { return shadowblock_css_selectors_; }
++  void SetShadowBlockCssSelectors(String shadowblock_css_selectors) {
++    shadowblock_css_selectors_ = shadowblock_css_selectors;
++  }
++  
+   static Document* Create(const DocumentInit& init) {
+     return MakeGarbageCollected<Document>(init);
+   }
+@@ -1542,6 +1578,23 @@ class CORE_EXPORT Document : public ContainerNode,
+   }
+ 
+  private:
++  // @SB
++  // Count of ad elements that have been hidden on this document
++  int num_hidden_ads_ = 0;
++  int num_marked_ads_ = 0;
++
++  bool need_download_elem_hide_selectors_ = false;
++  String shadowblock_css_selectors_ = "";
++
++  const String kShadowBlockCssSocketServerIp = 
++    SHADOWBLOCK_CSS_SOCKET_SERVER_IP;
++  const int kShadowBlockCssSocketServerPort = 
++    SHADOWBLOCK_CSS_SOCKET_SERVER_PORT;
++  const int kShadowBlockCssSocketMsgSegmentBufferLen = 
++    SHADOWBLOCK_CSS_SOCKET_MSG_SEGMENT_BUFFER_LEN;
++  const int kShadowBlockCssSocketMsgBufferLen = 
++    SHADOWBLOCK_CSS_SOCKET_MSG_BUFFER_LEN;
++
+   friend class IgnoreDestructiveWriteCountIncrementer;
+   friend class ThrowOnDynamicMarkupInsertionCountIncrementer;
+   friend class IgnoreOpensDuringUnloadCountIncrementer;
+diff --git a/third_party/blink/renderer/core/dom/element.cc b/third_party/blink/renderer/core/dom/element.cc
+index a51bfea..f936f31 100644
+--- a/third_party/blink/renderer/core/dom/element.cc
++++ b/third_party/blink/renderer/core/dom/element.cc
+@@ -28,6 +28,9 @@
+ 
+ #include <memory>
+ 
++// @SB
++#include "third_party/blink/renderer/shadowblock/logging.h"
++
+ #include "third_party/blink/public/platform/web_scroll_into_view_params.h"
+ #include "third_party/blink/renderer/bindings/core/v8/dictionary.h"
+ #include "third_party/blink/renderer/bindings/core/v8/scroll_into_view_options_or_boolean.h"
+@@ -214,6 +217,26 @@ bool IsRootEditableElementWithCounting(const Element& element) {
+ 
+ }  // namespace
+ 
++// @SB
++// Setter/getter methods of ad flag
++void Element::SetIsAd() {
++#if PRINT_ELEMENT_MARKING_STATS
++  if (!IsAd()) {
++    GetDocument().ReportMarkedAd();
++  }
++#endif
++  is_ad_ = true;
++}
++
++void Element::SetIsNotAd() {
++#if PRINT_ELEMENT_MARKING_STATS
++  if (IsAd()) {
++    GetDocument().ReportUnmarkedAd();
++  }
++#endif
++  is_ad_ = false;
++}
++
+ Element* Element::Create(const QualifiedName& tag_name, Document* document) {
+   return MakeGarbageCollected<Element>(tag_name, document, kCreateElement);
+ }
+@@ -221,7 +244,18 @@ Element* Element::Create(const QualifiedName& tag_name, Document* document) {
+ Element::Element(const QualifiedName& tag_name,
+                  Document* document,
+                  ConstructionType type)
+-    : ContainerNode(document, type), tag_name_(tag_name) {}
++    : ContainerNode(document, type), tag_name_(tag_name) {
++  // @SB
++  // If there is ad script being executed or we are already in
++  // a marked ad subframe, we mark this element
++  // (Note here we ignore <html> and <body> elements to avoid some 
++  // weird false positives)
++  if (!IsAd() && !IsHTMLHtmlElement(this) && 
++      !IsHTMLBodyElement(this) && 
++      GetDocument().callstack.IsAdScriptInStack()) {
++    SetIsAd();          
++  }
++}
+ 
+ inline ElementRareData* Element::GetElementRareData() const {
+   DCHECK(HasRareData());
+@@ -274,9 +308,12 @@ bool Element::IsFocusableStyle() const {
+     const HTMLCanvasElement* canvas =
+         Traversal<HTMLCanvasElement>::FirstAncestorOrSelf(*this);
+     DCHECK(canvas);
++    // @SB
++    // Hook necessary points to mask the fake visibility
++    // (elements with "visibility" set to "fake-visible" is still focusable)
+     return canvas->GetLayoutObject() &&
+-           canvas->GetLayoutObject()->Style()->Visibility() ==
+-               EVisibility::kVisible;
++           (canvas->GetLayoutObject()->Style()->Visibility() == EVisibility::kVisible ||
++            canvas->GetLayoutObject()->Style()->Visibility() == EVisibility::kFakeVisible);
+   }
+ 
+   if (IsInsideInvisibleSubtree()) {
+@@ -1627,6 +1664,51 @@ void Element::AttributeChanged(const AttributeModificationParams& params) {
+       root->DidChangeHostChildSlotName(params.old_value, params.new_value);
+   }
+ 
++  // @SB
++  // Monitor URL attribute changes and mark identified ad elements
++  // We add this monitoring because there are elements loaded by
++  // parser with ad URls instead of by ad scripts
++  // FIXME: this can be improved by intercepting WillSendRequest()
++  // and linking the request URL and the element that issues it
++  // (for multi-level redirections)
++  if (!IsAd() && name == html_names::kSrcAttr) {
++    if (IsHTMLIFrameElement(this)) {
++      if (GetDocument().callstack.IsAdUrl(params.new_value, ShadowBlock::Callstack::ResourceType::kIframe)) {
++        SetIsAd();
++      }
++    } else if (IsHTMLImageElement(this)) {
++      if (GetDocument().callstack.IsAdUrl(params.new_value, ShadowBlock::Callstack::ResourceType::kImage)) {
++        SetIsAd();
++      }
++    } else if (IsHTMLMediaElement(this)) {
++      if (GetDocument().callstack.IsAdUrl(params.new_value, ShadowBlock::Callstack::ResourceType::kVideo) ||
++          GetDocument().callstack.IsAdUrl(params.new_value, ShadowBlock::Callstack::ResourceType::kAudio)) {
++        SetIsAd();
++      }
++    }
++  }
++  // Un-mark previously marked elements because attributes can change over time
++  // and un-match the filter list (observed on real websites)
++  if (IsAd() && name == html_names::kSrcAttr) {
++    if (IsHTMLIFrameElement(this)) {
++      if (!GetDocument().callstack.IsAdUrl(params.new_value, ShadowBlock::Callstack::ResourceType::kIframe)) {
++        SetIsNotAd();
++        RecalcOwnStyle(StyleRecalcChange::kNo);
++      }
++    } else if (IsHTMLImageElement(this)) {
++      if (!GetDocument().callstack.IsAdUrl(params.new_value, ShadowBlock::Callstack::ResourceType::kImage)) {
++        SetIsNotAd();
++        RecalcOwnStyle(StyleRecalcChange::kNo);
++      }
++    } else if (IsHTMLMediaElement(this)) {
++      if (!GetDocument().callstack.IsAdUrl(params.new_value, ShadowBlock::Callstack::ResourceType::kVideo) &&
++          !GetDocument().callstack.IsAdUrl(params.new_value, ShadowBlock::Callstack::ResourceType::kAudio)) {
++        SetIsNotAd();
++        RecalcOwnStyle(StyleRecalcChange::kNo);
++      }
++    }
++  }
++
+   ParseAttribute(params);
+ 
+   GetDocument().IncDOMTreeVersion();
+@@ -1691,6 +1773,72 @@ void Element::AttributeChanged(const AttributeModificationParams& params) {
+     if (!SupportsFocus())
+       blur();
+   }
++
++  // @SB
++  // Logics for applying element hiding rules
++  if (GetDocument().HasDesirableDomEventFired() &&
++      !GetDocument().HasElemHideCssSelectors() &&
++      GetDocument().NeedDownloadElemHideCssSelectors()) {
++    // Once the pre-defined DOM event is fired **AND** there are no 
++    // existing CSS selectors, we first download the selectors
++    bool is_success = GetDocument().DownloadElemHideCssSelectors();
++    if (!is_success)
++      return;    
++
++    // and perform a batch match via QuerySelectorAll() to mark all 
++    // matched elements
++    StaticElementList* items =
++      GetDocument().QuerySelectorAll(AtomicString(GetDocument().GetShadowBlockCssSelectors()));
++    
++    for (unsigned int i = 0; i < items->length(); i++) {
++      auto* it = items->item(i);
++      if (!it->IsAd()) {
++        it->SetIsAd();
++        // We mark HTML-rule-matched elements to faciliate possible un-marking
++        // in the future
++        it->HasBeenElemHideMatch();
++      }
++    }
++  }
++  // Hide those elements that have matching attributes
++  if (GetDocument().HasDesirableDomEventFired() && !IsAd() &&
++      GetDocument().GetShadowBlockCssSelectors() != "" &&
++      matches(AtomicString(GetDocument().GetShadowBlockCssSelectors()))) {
++    SetIsAd();
++    SetHasBeenElemHideMatch();
++#if PRINT_ELEMENT_MARKING_STATS
++    AttributeCollection attrs = AttributesWithoutUpdate();
++    std::cout << "---Newly marked element---"
++              << std::endl;
++    for (auto const it : attrs) {
++      std::cout << "name: " << it.LocalName()
++                << " | value: " << it.Value()
++                << std::endl;
++    }
++    std::cout << "------------end-----------"
++              << std::endl;
++#endif
++  // Un-hide those elements that have changed and un-matching attributes
++  } else if ((GetDocument().HasDesirableDomEventFired() &&
++             IsAd() && HasBeenElemHideMatch()) &&
++             GetDocument().GetShadowBlockCssSelectors() != "" &&
++             !matches(AtomicString(GetDocument().GetShadowBlockCssSelectors()))) {
++    SetIsNotAd();
++#if PRINT_ELEMENT_MARKING_STATS
++    AttributeCollection attrs = AttributesWithoutUpdate();
++    std::cout << "--Newly unmarked element--"
++              << std::endl;
++    for (auto const it : attrs) {
++      std::cout << "name: " << it.LocalName()
++                << " | value: " << it.Value()
++                << std::endl;
++    }
++    std::cout << "------------end-----------"
++              << std::endl;
++#endif
++    // This is necessary to activate the outstanding CSS prop change (why?)
++    RecalcOwnStyle(StyleRecalcChange::kNo);
++  }
+ }
+ 
+ bool Element::HasLegalLinkAttribute(const QualifiedName&) const {
+diff --git a/third_party/blink/renderer/core/dom/element.h b/third_party/blink/renderer/core/dom/element.h
+index f16e254..e8e598e 100644
+--- a/third_party/blink/renderer/core/dom/element.h
++++ b/third_party/blink/renderer/core/dom/element.h
+@@ -158,6 +158,14 @@ class CORE_EXPORT Element : public ContainerNode {
+   DEFINE_WRAPPERTYPEINFO();
+ 
+  public:
++  // @SB
++  // Getter/setter of ad flag
++  inline bool IsAd() { return is_ad_; }
++  inline bool HasBeenElemHideMatch() { return has_been_elem_hide_match_; }
++  inline void SetHasBeenElemHideMatch() { has_been_elem_hide_match_ = true; }
++  void SetIsAd();
++  void SetIsNotAd();
++
+   static Element* Create(const QualifiedName&, Document*);
+ 
+   Element(const QualifiedName& tag_name, Document*, ConstructionType);
+@@ -951,6 +959,11 @@ class CORE_EXPORT Element : public ContainerNode {
+   virtual void ParserDidSetAttributes() {}
+ 
+  private:
++  // @SB
++  // flag that indicates if this element is ad-related *at the point*
++  bool is_ad_ = false;
++  bool has_been_elem_hide_match_ = false;
++
+   void ScrollLayoutBoxBy(const ScrollToOptions*);
+   void ScrollLayoutBoxTo(const ScrollToOptions*);
+   void ScrollFrameBy(const ScrollToOptions*);
+diff --git a/third_party/blink/renderer/core/exported/web_frame_content_dumper.cc b/third_party/blink/renderer/core/exported/web_frame_content_dumper.cc
+index 5d68324..224e1f8 100644
+--- a/third_party/blink/renderer/core/exported/web_frame_content_dumper.cc
++++ b/third_party/blink/renderer/core/exported/web_frame_content_dumper.cc
+@@ -60,12 +60,15 @@ void FrameContentAsPlainText(size_t max_chars,
+     // Ignore the text of non-visible frames.
+     LayoutView* layout_view = cur_local_child->ContentLayoutObject();
+     LayoutObject* owner_layout_object = cur_local_child->OwnerLayoutObject();
++    // @SB
++    // Hook necesarry points to mask the fake visibility
+     if (!layout_view || !layout_view->Size().Width() ||
+         !layout_view->Size().Height() ||
+         (layout_view->Location().X() + layout_view->Size().Width() <= 0) ||
+         (layout_view->Location().Y() + layout_view->Size().Height() <= 0) ||
+         (owner_layout_object && owner_layout_object->Style() &&
+-         owner_layout_object->Style()->Visibility() != EVisibility::kVisible)) {
++         (owner_layout_object->Style()->Visibility() != EVisibility::kVisible &&
++          owner_layout_object->Style()->Visibility() != EVisibility::kFakeVisible))) {
+       continue;
+     }
+ 
+diff --git a/third_party/blink/renderer/core/frame/web_local_frame_impl.cc b/third_party/blink/renderer/core/frame/web_local_frame_impl.cc
+index ae240d4..d86a33b 100644
+--- a/third_party/blink/renderer/core/frame/web_local_frame_impl.cc
++++ b/third_party/blink/renderer/core/frame/web_local_frame_impl.cc
+@@ -623,8 +623,11 @@ WebSize WebLocalFrameImpl::DocumentSize() const {
+ 
+ bool WebLocalFrameImpl::HasVisibleContent() const {
+   auto* layout_object = GetFrame()->OwnerLayoutObject();
++  // @SB
++  // Hook necessary points to mask the fake visibility
+   if (layout_object &&
+-      layout_object->StyleRef().Visibility() != EVisibility::kVisible) {
++      layout_object->StyleRef().Visibility() != EVisibility::kVisible &&
++      layout_object->StyleRef().Visibility() != EVisibility::kFakeVisible) {
+     return false;
+   }
+ 
+diff --git a/third_party/blink/renderer/core/html/html_area_element.cc b/third_party/blink/renderer/core/html/html_area_element.cc
+index 389f334..d05a756 100644
+--- a/third_party/blink/renderer/core/html/html_area_element.cc
++++ b/third_party/blink/renderer/core/html/html_area_element.cc
+@@ -195,8 +195,12 @@ bool HTMLAreaElement::IsMouseFocusable() const {
+ 
+ bool HTMLAreaElement::IsFocusableStyle() const {
+   HTMLImageElement* image = ImageElement();
++  // @SB
++  // Hook necessary points to mask the fake visibility
++  // (anti-adblockers might use SetFocused() as a side channel)
+   if (!image || !image->GetLayoutObject() ||
+-      image->GetLayoutObject()->Style()->Visibility() != EVisibility::kVisible)
++      (image->GetLayoutObject()->Style()->Visibility() != EVisibility::kVisible &&
++       image->GetLayoutObject()->Style()->Visibility() != EVisibility::kFakeVisible))
+     return false;
+ 
+   return SupportsFocus() && Element::tabIndex() >= 0;
+diff --git a/third_party/blink/renderer/core/html/lazy_load_frame_observer.cc b/third_party/blink/renderer/core/html/lazy_load_frame_observer.cc
+index 96facfd..cb61cc4 100644
+--- a/third_party/blink/renderer/core/html/lazy_load_frame_observer.cc
++++ b/third_party/blink/renderer/core/html/lazy_load_frame_observer.cc
+@@ -57,6 +57,10 @@ bool IsFrameProbablyHidden(const DOMRectReadOnly& bounding_client_rect,
+       case EVisibility::kHidden:
+       case EVisibility::kCollapse:
+         return true;
++      // @SB
++      // Hook necessary points to mask the fake visibility
++      case EVisibility::kFakeVisible:
++        break;
+       case EVisibility::kVisible:
+         break;
+     }
+diff --git a/third_party/blink/renderer/core/layout/layout_block.cc b/third_party/blink/renderer/core/layout/layout_block.cc
+index 39c6896..90115488 100644
+--- a/third_party/blink/renderer/core/layout/layout_block.cc
++++ b/third_party/blink/renderer/core/layout/layout_block.cc
+@@ -1376,8 +1376,11 @@ PositionWithAffinity LayoutBlock::PositionForPointIfOutsideAtomicInlineLevel(
+ }
+ 
+ static inline bool IsChildHitTestCandidate(LayoutBox* box) {
++  // @SB
++  // Hook necessary points to mask the fake visibility
+   return box->Size().Height() &&
+-         box->StyleRef().Visibility() == EVisibility::kVisible &&
++         (box->StyleRef().Visibility() == EVisibility::kVisible ||
++         box->StyleRef().Visibility() == EVisibility::kFakeVisible) &&
+          !box->IsFloatingOrOutOfFlowPositioned() && !box->IsLayoutFlowThread();
+ }
+ 
+diff --git a/third_party/blink/renderer/core/layout/layout_box.cc b/third_party/blink/renderer/core/layout/layout_box.cc
+index a5fbded..174404d 100644
+--- a/third_party/blink/renderer/core/layout/layout_box.cc
++++ b/third_party/blink/renderer/core/layout/layout_box.cc
+@@ -1766,7 +1766,10 @@ static bool IsCandidateForOpaquenessTest(const LayoutBox& child_box) {
+   if (child_style.GetPosition() != EPosition::kStatic &&
+       child_box.ContainingBlock() != child_box.Parent())
+     return false;
+-  if (child_style.Visibility() != EVisibility::kVisible ||
++  // @SB
++  // Hook necessary points to mask the fake visibility
++  if ((child_style.Visibility() != EVisibility::kVisible &&
++      child_style.Visibility() != EVisibility::kFakeVisible) ||
+       child_style.ShapeOutside())
+     return false;
+   // CSS clip is not considered in foreground or background opaqueness checks.
+@@ -5021,9 +5024,13 @@ PositionWithAffinity LayoutBox::PositionForPoint(
+ 
+   for (LayoutObject* layout_object = first_child; layout_object;
+        layout_object = layout_object->NextSibling()) {
++    // @SB
++    // Hook necessary points to mask the fake visibility
++    // Note this test is reposible for elementFromPoint() etc. APIs
+     if ((!layout_object->SlowFirstChild() && !layout_object->IsInline() &&
+          !layout_object->IsLayoutBlockFlow()) ||
+-        layout_object->StyleRef().Visibility() != EVisibility::kVisible)
++        (layout_object->StyleRef().Visibility() != EVisibility::kVisible &&
++         layout_object->StyleRef().Visibility() != EVisibility::kFakeVisible))
+       continue;
+ 
+     if (!layout_object->IsBox())
+diff --git a/third_party/blink/renderer/core/layout/layout_inline.cc b/third_party/blink/renderer/core/layout/layout_inline.cc
+index 93361bc..3d7389f 100644
+--- a/third_party/blink/renderer/core/layout/layout_inline.cc
++++ b/third_party/blink/renderer/core/layout/layout_inline.cc
+@@ -1803,7 +1803,10 @@ void LayoutInline::ComputeSelfHitTestRects(
+ 
+ void LayoutInline::AddAnnotatedRegions(Vector<AnnotatedRegionValue>& regions) {
+   // Convert the style regions to absolute coordinates.
+-  if (StyleRef().Visibility() != EVisibility::kVisible)
++  // @SB
++  // Hook necessary points to mask the fake visibility
++  if (StyleRef().Visibility() != EVisibility::kVisible &&
++      StyleRef().Visibility() != EVisibility::kFakeVisible)
+     return;
+ 
+   if (StyleRef().DraggableRegionMode() == EDraggableRegionMode::kNone)
+diff --git a/third_party/blink/renderer/core/layout/layout_object.h b/third_party/blink/renderer/core/layout/layout_object.h
+index 4ae2b09..e2037f6 100644
+--- a/third_party/blink/renderer/core/layout/layout_object.h
++++ b/third_party/blink/renderer/core/layout/layout_object.h
+@@ -1581,8 +1581,11 @@ class CORE_EXPORT LayoutObject : public ImageResourceObserver,
+   // non-SVG objects and LayoutSVGRoot only. SVG objects (except LayoutSVGRoot)
+   // should use VisualRectInLocalSVGCoordinates() and map with SVG transforms
+   // instead.
++  // @SB
++  // Hook necessary points to mask the fake visibility
+   LayoutRect LocalVisualRect() const {
+     if (StyleRef().Visibility() != EVisibility::kVisible &&
++        StyleRef().Visibility() != EVisibility::kFakeVisible &&
+         VisualRectRespectsVisibility())
+       return LayoutRect();
+     return LocalVisualRectIgnoringVisibility();
+@@ -1729,7 +1732,10 @@ class CORE_EXPORT LayoutObject : public ImageResourceObserver,
+   }
+ 
+   bool VisibleToHitTestRequest(const HitTestRequest& request) const {
+-    return StyleRef().Visibility() == EVisibility::kVisible &&
++    // @SB
++    // Hook necessary points to mask the fake visibility
++    return (StyleRef().Visibility() == EVisibility::kVisible ||
++            StyleRef().Visibility() == EVisibility::kFakeVisible) &&
+            (request.IgnorePointerEventsNone() ||
+             StyleRef().PointerEvents() != EPointerEvents::kNone) &&
+            !IsInert();
+diff --git a/third_party/blink/renderer/core/layout/svg/layout_svg_image.cc b/third_party/blink/renderer/core/layout/svg/layout_svg_image.cc
+index b05921f..7d73a92 100644
+--- a/third_party/blink/renderer/core/layout/svg/layout_svg_image.cc
++++ b/third_party/blink/renderer/core/layout/svg/layout_svg_image.cc
+@@ -180,7 +180,10 @@ bool LayoutSVGImage::NodeAtPoint(HitTestResult& result,
+   PointerEventsHitRules hit_rules(PointerEventsHitRules::SVG_IMAGE_HITTESTING,
+                                   result.GetHitTestRequest(),
+                                   style.PointerEvents());
+-  if (hit_rules.require_visible && style.Visibility() != EVisibility::kVisible)
++  // @SB
++  // Hook necessary points to mask the fake visibility
++  if (hit_rules.require_visible && style.Visibility() != EVisibility::kVisible &&
++      style.Visibility() != EVisibility::kFakeVisible)
+     return false;
+ 
+   TransformedHitTestLocation local_location(location_in_container,
+diff --git a/third_party/blink/renderer/core/layout/svg/layout_svg_shape.cc b/third_party/blink/renderer/core/layout/svg/layout_svg_shape.cc
+index a421fd8..44f11e1 100644
+--- a/third_party/blink/renderer/core/layout/svg/layout_svg_shape.cc
++++ b/third_party/blink/renderer/core/layout/svg/layout_svg_shape.cc
+@@ -358,7 +358,10 @@ bool LayoutSVGShape::NodeAtPoint(HitTestResult& result,
+   const PointerEventsHitRules hit_rules(
+       PointerEventsHitRules::SVG_GEOMETRY_HITTESTING,
+       result.GetHitTestRequest(), style.PointerEvents());
+-  if (hit_rules.require_visible && style.Visibility() != EVisibility::kVisible)
++  // @SB
++  // Hook necessary points to mask the fake visibility
++  if (hit_rules.require_visible && style.Visibility() != EVisibility::kVisible &&
++      style.Visibility() != EVisibility::kFakeVisible)
+     return false;
+ 
+   TransformedHitTestLocation local_location(location_in_parent,
+diff --git a/third_party/blink/renderer/core/layout/svg/line/svg_inline_text_box.cc b/third_party/blink/renderer/core/layout/svg/line/svg_inline_text_box.cc
+index 44562a1..c4f9cc3 100644
+--- a/third_party/blink/renderer/core/layout/svg/line/svg_inline_text_box.cc
++++ b/third_party/blink/renderer/core/layout/svg/line/svg_inline_text_box.cc
+@@ -308,7 +308,10 @@ bool SVGInlineTextBox::NodeAtPoint(HitTestResult& result,
+   PointerEventsHitRules hit_rules(PointerEventsHitRules::SVG_TEXT_HITTESTING,
+                                   result.GetHitTestRequest(),
+                                   style.PointerEvents());
+-  if (hit_rules.require_visible && style.Visibility() != EVisibility::kVisible)
++  // @SB
++  // Hook necessary points to mask the fake visibility
++  if (hit_rules.require_visible && style.Visibility() != EVisibility::kVisible &&
++      style.Visibility() != EVisibility::kFakeVisible)
+     return false;
+   if (hit_rules.can_hit_bounding_box ||
+       (hit_rules.can_hit_stroke &&
+diff --git a/third_party/blink/renderer/core/layout/svg/svg_layout_support.cc b/third_party/blink/renderer/core/layout/svg/svg_layout_support.cc
+index e59c0a2..59c2ad5 100644
+--- a/third_party/blink/renderer/core/layout/svg/svg_layout_support.cc
++++ b/third_party/blink/renderer/core/layout/svg/svg_layout_support.cc
+@@ -64,7 +64,10 @@ FloatRect SVGLayoutSupport::LocalVisualRect(const LayoutObject& object) {
+   DCHECK(!object.IsSVGRoot());
+ 
+   // Return early for any cases where we don't actually paint
++  // @SB
++  // Hook necessary points to mask the fake visibility
+   if (object.StyleRef().Visibility() != EVisibility::kVisible &&
++      object.StyleRef().Visibility() != EVisibility::kFakeVisible &&
+       !object.EnclosingLayer()->HasVisibleContent())
+     return FloatRect();
+ 
+diff --git a/third_party/blink/renderer/core/loader/frame_fetch_context.cc b/third_party/blink/renderer/core/loader/frame_fetch_context.cc
+index 812e49a..97cfb84 100644
+--- a/third_party/blink/renderer/core/loader/frame_fetch_context.cc
++++ b/third_party/blink/renderer/core/loader/frame_fetch_context.cc
+@@ -1243,6 +1243,13 @@ ResourceLoadPriority FrameFetchContext::ModifyPriorityForExperiments(
+   return ResourceLoadPriority::kLowest;
+ }
+ 
++// @SB
++// Talk to Callstack directly, instead of using probes
++void FrameFetchContext::NotifyCallstackWillSendRequest(ResourceRequest& resource_request, 
++                                                       ResourceType type) const {
++  GetFrame()->GetDocument()->callstack.WillSendRequest(resource_request, type);
++}
++
+ bool FrameFetchContext::CalculateIfAdSubresource(
+     const ResourceRequest& resource_request,
+     ResourceType type) {
+diff --git a/third_party/blink/renderer/core/loader/frame_fetch_context.h b/third_party/blink/renderer/core/loader/frame_fetch_context.h
+index 6f9d676..a884dbf 100644
+--- a/third_party/blink/renderer/core/loader/frame_fetch_context.h
++++ b/third_party/blink/renderer/core/loader/frame_fetch_context.h
+@@ -152,6 +152,10 @@ class CORE_EXPORT FrameFetchContext final : public BaseFetchContext {
+   bool CalculateIfAdSubresource(const ResourceRequest& resource_request,
+                                 ResourceType type) override;
+ 
++  // @SB
++  void NotifyCallstackWillSendRequest(ResourceRequest& resource_request,
++                                      ResourceType type) const override;
++
+   void DispatchNetworkQuiet() override;
+ 
+  private:
+diff --git a/third_party/blink/renderer/modules/accessibility/ax_layout_object.cc b/third_party/blink/renderer/modules/accessibility/ax_layout_object.cc
+index f8c18dd..c059ca3 100644
+--- a/third_party/blink/renderer/modules/accessibility/ax_layout_object.cc
++++ b/third_party/blink/renderer/modules/accessibility/ax_layout_object.cc
+@@ -528,7 +528,11 @@ AXObjectInclusion AXLayoutObject::DefaultObjectInclusion(
+     return kIgnoreObject;
+   }
+ 
+-  if (layout_object_->Style()->Visibility() != EVisibility::kVisible) {
++  // @SB
++  // Hook necessary points to mask the fake visibility
++  // (we take care of accessibility component too as they can leak our hiding)
++  if (layout_object_->Style()->Visibility() != EVisibility::kVisible &&
++      layout_object_->Style()->Visibility() != EVisibility::kFakeVisible) {
+     // aria-hidden is meant to override visibility as the determinant in AX
+     // hierarchy inclusion.
+     if (AOMPropertyOrARIAAttributeIsFalse(AOMBooleanProperty::kHidden))
+diff --git a/third_party/blink/renderer/modules/accessibility/ax_media_controls.cc b/third_party/blink/renderer/modules/accessibility/ax_media_controls.cc
+index 0043a22..2c8d189 100644
+--- a/third_party/blink/renderer/modules/accessibility/ax_media_controls.cc
++++ b/third_party/blink/renderer/modules/accessibility/ax_media_controls.cc
+@@ -143,8 +143,11 @@ String AccessibilityMediaControl::Description(
+ 
+ bool AccessibilityMediaControl::ComputeAccessibilityIsIgnored(
+     IgnoredReasons* ignored_reasons) const {
++  // @SB
++  // Hook necessary points to mask the fake visibility
+   if (!layout_object_ || !layout_object_->Style() ||
+-      layout_object_->Style()->Visibility() != EVisibility::kVisible ||
++      (layout_object_->Style()->Visibility() != EVisibility::kVisible &&
++       layout_object_->Style()->Visibility() != EVisibility::kFakeVisible) ||
+       ControlType() == kMediaTimelineContainer)
+     return true;
+ 
+diff --git a/third_party/blink/renderer/modules/accessibility/ax_object.cc b/third_party/blink/renderer/modules/accessibility/ax_object.cc
+index ffd9696..849e81b 100644
+--- a/third_party/blink/renderer/modules/accessibility/ax_object.cc
++++ b/third_party/blink/renderer/modules/accessibility/ax_object.cc
+@@ -1480,7 +1480,10 @@ bool AXObject::IsHiddenForTextAlternativeCalculation() const {
+     return false;
+ 
+   if (GetLayoutObject())
+-    return GetLayoutObject()->Style()->Visibility() != EVisibility::kVisible;
++    // @SB
++    // Hook necessary points to mask the fake visibility
++    return GetLayoutObject()->Style()->Visibility() != EVisibility::kVisible &&
++           GetLayoutObject()->Style()->Visibility() != EVisibility::kFakeVisible;
+ 
+   // This is an obscure corner case: if a node has no LayoutObject, that means
+   // it's not rendered, but we still may be exploring it as part of a text
+@@ -1495,8 +1498,11 @@ bool AXObject::IsHiddenForTextAlternativeCalculation() const {
+     if (node->isConnected() && node->IsElementNode()) {
+       scoped_refptr<ComputedStyle> style =
+           document->EnsureStyleResolver().StyleForElement(ToElement(node));
++      // @SB
++      // Hook necessary points to mask the fake visibility
+       return style->Display() == EDisplay::kNone ||
+-             style->Visibility() != EVisibility::kVisible;
++             (style->Visibility() != EVisibility::kVisible &&
++              style->Visibility() != EVisibility::kFakeVisible);
+     }
+   }
+   return false;
+diff --git a/third_party/blink/renderer/platform/loader/fetch/fetch_context.h b/third_party/blink/renderer/platform/loader/fetch/fetch_context.h
+index a905289..37f6ae2 100644
+--- a/third_party/blink/renderer/platform/loader/fetch/fetch_context.h
++++ b/third_party/blink/renderer/platform/loader/fetch/fetch_context.h
+@@ -234,6 +234,10 @@ class PLATFORM_EXPORT FetchContext
+     return false;
+   }
+ 
++  // @SB
++  virtual void NotifyCallstackWillSendRequest(ResourceRequest& resource_request,
++                                              ResourceType type) const {}
++
+   // Called when IdlenessDetector emits its network idle signal.
+   virtual void DispatchNetworkQuiet() {}
+ 
+diff --git a/third_party/blink/renderer/platform/loader/fetch/resource_fetcher.cc b/third_party/blink/renderer/platform/loader/fetch/resource_fetcher.cc
+index 39a53a9..a42405a 100644
+--- a/third_party/blink/renderer/platform/loader/fetch/resource_fetcher.cc
++++ b/third_party/blink/renderer/platform/loader/fetch/resource_fetcher.cc
+@@ -823,6 +823,10 @@ base::Optional<ResourceRequestBlockedReason> ResourceFetcher::PrepareRequest(
+                            reporting_policy,
+                            resource_request.GetRedirectStatus());
+ 
++  // @SB
++  // Notify Callstack about the request being prepared
++  Context().NotifyCallstackWillSendRequest(resource_request, resource_type);
++
+   if (Context().CalculateIfAdSubresource(resource_request, resource_type))
+     resource_request.SetIsAdResource();
+ 
+diff --git a/third_party/blink/renderer/platform/loader/fetch/resource_loader.cc b/third_party/blink/renderer/platform/loader/fetch/resource_loader.cc
+index bf5014c..965984e 100644
+--- a/third_party/blink/renderer/platform/loader/fetch/resource_loader.cc
++++ b/third_party/blink/renderer/platform/loader/fetch/resource_loader.cc
+@@ -696,6 +696,10 @@ bool ResourceLoader::WillFollowRedirect(
+             resource_type, *new_request, new_url, options, reporting_policy,
+             ResourceRequest::RedirectStatus::kFollowedRedirect);
+ 
++    // @SB
++    // Notify the Callstack about the request being redirected
++    Context().NotifyCallstackWillSendRequest(*new_request, resource_type);
++
+     if (Context().CalculateIfAdSubresource(*new_request, resource_type))
+       new_request->SetIsAdResource();
+ 
+diff --git a/third_party/blink/renderer/platform/runtime_enabled_features.json5 b/third_party/blink/renderer/platform/runtime_enabled_features.json5
+index fa5ca25..e29e2e7 100644
+--- a/third_party/blink/renderer/platform/runtime_enabled_features.json5
++++ b/third_party/blink/renderer/platform/runtime_enabled_features.json5
+@@ -94,7 +94,9 @@
+     },
+     {
+       name: "AdTagging",
+-      status: "test",
++      // @SB
++      // Forcely turn on dry-run mode
++      status: "stable",
+     },
+     {
+       name: "AllowActivationDelegationAttr",
+diff --git a/third_party/blink/renderer/shadowblock/BUILD.gn b/third_party/blink/renderer/shadowblock/BUILD.gn
+new file mode 100644
+index 0000000..75721ee
+--- /dev/null
++++ b/third_party/blink/renderer/shadowblock/BUILD.gn
+@@ -0,0 +1,15 @@
++import("//third_party/blink/renderer/core/core.gni")
++
++blink_core_sources("shadowblock") {
++  deps = [
++    "//v8",
++  ]
++
++  sources = [
++    "types.h",
++    "logging.h",
++    "shadowblock.h",
++    "callstack.h",
++    "callstack.cc",
++  ]
++}
+diff --git a/third_party/blink/renderer/shadowblock/callstack.cc b/third_party/blink/renderer/shadowblock/callstack.cc
+new file mode 100644
+index 0000000..30db3e5
+--- /dev/null
++++ b/third_party/blink/renderer/shadowblock/callstack.cc
+@@ -0,0 +1,171 @@
++#include <iostream>
++
++#include "third_party/blink/renderer/shadowblock/types.h"
++#include "third_party/blink/renderer/shadowblock/callstack.h"
++#include "third_party/blink/renderer/shadowblock/logging.h"
++#include "third_party/blink/renderer/bindings/core/v8/source_location.h"
++#include "third_party/blink/renderer/core/frame/ad_tracker.h"
++#include "third_party/blink/renderer/core/dom/document.h"
++
++#include "third_party/blink/renderer/platform/weborigin/kurl.h"
++#include "third_party/blink/renderer/platform/loader/fetch/resource_request.h"
++
++namespace ShadowBlock {
++
++String Callstack::CaptureFullCallstackTrace() const {
++  return blink::SourceLocation::CaptureWithFullStackTrace()->ToString();
++}
++
++String Callstack::CaptureFullStackTraceWithUniqueScriptUrls() const {
++  return blink::SourceLocation::CaptureWithFullStackTrace()->ToUniqueScriptUrlString();
++}
++
++String Callstack::CaptureFullStackTraceWithUniqueScriptIds() const {
++  return blink::SourceLocation::CaptureWithFullStackTrace()->ToUniqueScriptIdString();
++}
++
++// For debugging
++void Callstack::PrintCallstackTrace() const {
++  std::cout << CaptureFullCallstackTrace()
++            << std::endl;
++}
++
++void Callstack::PrintStackTraceWithUniqueScriptUrls() const {
++  std::cout << CaptureFullStackTraceWithUniqueScriptUrls()
++            << std::endl;
++}
++
++void Callstack::PrintStackTraceWithUniqueScriptIds() const {
++  std::cout << CaptureFullStackTraceWithUniqueScriptIds()
++            << std::endl;
++}
++
++bool Callstack::IsAdUrl(String url, ResourceType type) const {
++  if (!filter_)
++    return false;
++  blink::mojom::RequestContextType context_type;
++  switch(type) {
++    case kScript: 
++      context_type = blink::mojom::RequestContextType::SCRIPT;
++      break;
++    case kImage: 
++      context_type = blink::mojom::RequestContextType::IMAGE;
++      break;
++    case kIframe: 
++      context_type = blink::mojom::RequestContextType::IFRAME;
++      break;
++    case kAudio:
++      context_type = blink::mojom::RequestContextType::AUDIO;
++      break;
++    case kVideo:
++      context_type = blink::mojom::RequestContextType::VIDEO;
++      break;
++  }
++  if (filter_->IsAdResource(blink::KURL(url), context_type)) {
++    return true;
++  }
++  return false;
++}
++
++void Callstack::RegisterScriptId(ScriptId script_id) {
++  if (known_ad_script_ids_.Contains(script_id))
++    return;
++  if (IsAdScriptInStack()) {
++    known_ad_script_ids_.insert(script_id);
++  }
++}
++
++void Callstack::PrintKnownAdScriptUrls() const {
++  for (String url : known_ad_script_urls_) {
++    std::cout << url << " ";
++  }
++  std::cout << std::endl;
++}
++
++bool Callstack::IsAdScriptInStack() const {
++#if PRINT_CALLSTACK_STATS
++  std::cout << "[SB-Debug][Callstack] Determining if any ad script is being called: ";
++#endif
++  // Step/Heuristic 1: retrieve the judgement from AdTracker because it's cheap
++  if (ad_tracker_ && ad_tracker_->IsAdScriptInStack()) {
++#if PRINT_CALLSTACK_STATS
++    std::cout << "AdTracker says YES"
++              << std::endl;
++#endif
++    return true;
++  }
++  
++  // Step/Heuristic 2: if the owner frame has been marked as ad subframe
++  // (why would there be no document associated?)
++  if (document_ && document_->GetFrame()->IsAdSubframe()) {
++#if PRINT_CALLSTACK_STATS
++    std::cout << "IsAdSubframe says YES"
++              << std::endl;
++#endif
++    return true;
++  }
++
++  // Step/Heuristic 3: capture full call stack trace with unique script **urls**
++  // and **ids** from debugger and scan them against SubresourceFilter. 
++  // Note that we currently miss asynchrous tasks
++  String stack_trace_script_urls = CaptureFullStackTraceWithUniqueScriptUrls();
++  Vector<String> script_urls;
++  stack_trace_script_urls.Split(" ", script_urls);
++  for (auto script_url : script_urls) {
++    if (known_ad_script_urls_.Contains(script_url)) {
++#if PRINT_CALLSTACK_STATS
++      std::cout << "StackTrace says YES because of known ad **url** set"
++                << std::endl;
++#endif
++      return true;
++    } else if (IsAdUrl(script_url, ResourceType::kScript)) {
++#if PRINT_CALLSTACK_STATS
++      std::cout << "StackTrace says YES because of filter"
++                << std::endl;
++#endif
++      return true;
++    }
++  }
++  // Use script ids to deal with inline scripts (wo/ url)
++  String stack_trace_script_ids = CaptureFullStackTraceWithUniqueScriptIds();
++  Vector<String> script_ids; 
++  stack_trace_script_ids.Split(" ", script_ids);
++  for (auto script_id : script_ids) {
++    if (known_ad_script_ids_.Contains(script_id.ToInt())) {
++#if PRINT_CALLSTACK_STATS
++      std::cout << "StackTrace says YES because of known ad **id** set"
++                << std::endl;
++#endif
++      return true;
++    }
++  }
++
++#if PRINT_CALLSTACK_STATS
++      std::cout << "Everyone says NO"
++                << std::endl;
++#endif
++  // No evidence shows there is ad script being called
++  return false;
++}
++
++// Instrumentation on points a request (or redirection) is being sent
++void Callstack::WillSendRequest(blink::ResourceRequest& resource_request,
++                                blink::ResourceType resource_type) {
++  // We ignore non-script resource requests (for now?)
++  if (resource_type != blink::ResourceType::kScript)
++    return;
++
++  // If already marked, then insert directly and return
++  if (resource_request.IsAdResource()) {
++    known_ad_script_urls_.insert(resource_request.Url().GetString());
++    return;
++  }
++
++  // If not marked yet, mark it and insert
++  if (IsAdScriptInStack()) {
++    resource_request.SetIsAdResource();
++    known_ad_script_urls_.insert(resource_request.Url().GetString());
++  }
++}
++
++} // namespace ShadowBlock
+diff --git a/third_party/blink/renderer/shadowblock/callstack.h b/third_party/blink/renderer/shadowblock/callstack.h
+new file mode 100644
+index 0000000..556e17d
+--- /dev/null
++++ b/third_party/blink/renderer/shadowblock/callstack.h
+@@ -0,0 +1,57 @@
++#ifndef THIRD_PARTY_BLINK_RENDERER_SHADOWBLOCK_CALLSTACK_H_
++#define THIRD_PARTY_BLINK_RENDERER_SHADOWBLOCK_CALLSTACK_H_
++
++#include <iostream>
++
++#include "third_party/blink/renderer/core/core_export.h"
++
++// Use data strcutures provided by Chromium, not system library
++#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
++#include "third_party/blink/renderer/platform/wtf/hash_set.h"
++
++#include "third_party/blink/renderer/shadowblock/types.h"
++#include "third_party/blink/renderer/core/loader/subresource_filter.h"
++#include "third_party/blink/renderer/platform/loader/fetch/resource_request.h"
++#include "third_party/blink/renderer/platform/loader/fetch/resource.h"
++
++namespace blink {
++
++class Document;
++class AdTracker;
++
++} // namespace blink
++
++namespace ShadowBlock {
++
++class Callstack {
++  public:
++    // We currently only need/support these types of resources
++    enum ResourceType {kScript, kImage, kIframe, kAudio, kVideo};
++
++    String CaptureFullCallstackTrace() const;
++    String CaptureFullStackTraceWithUniqueScriptUrls() const;
++    String CaptureFullStackTraceWithUniqueScriptIds() const;
++    void PrintCallstackTrace() const;
++    void PrintStackTraceWithUniqueScriptUrls() const;
++    void PrintStackTraceWithUniqueScriptIds() const;
++    void PrintKnownAdScriptUrls() const;
++    bool IsAdScriptInStack() const;
++    bool IsAdUrl(String, ResourceType) const;
++    void SetDocument(blink::Document* document) { document_ = document; }
++    void SetFilter(blink::SubresourceFilter* filter) { filter_ = filter; }
++    void SetAdTracker(blink::AdTracker* ad_tracker) { ad_tracker_ = ad_tracker; }
++    void InsertIntoKnownAdScriptIdSet(ScriptId);
++    void RegisterScriptId(ScriptId);
++    virtual void WillSendRequest(blink::ResourceRequest&, blink::ResourceType);
++
++  private:
++    HashSet<String> known_ad_script_urls_; // store ad script urls determined from WillSendRequest()
++    HashSet<ScriptId> known_ad_script_ids_; // store ad script ids
++    blink::SubresourceFilter* filter_ = nullptr; // keep a pointer to the loader-specific SubresourcesFilter
++    blink::Document* document_ = nullptr; // keep a pointer to our owner Document to be an reference
++    blink::AdTracker* ad_tracker_ = nullptr; // keep a pointer to the frame-specific AdTracker
++};
++
++} // namespace ShadowBlock
++
++#endif // THIRD_PARTY_BLINK_RENDERER_SHADOWBLOCK_CALLSTACK_H_
+diff --git a/third_party/blink/renderer/shadowblock/context_map.cc b/third_party/blink/renderer/shadowblock/context_map.cc
+new file mode 100644
+index 0000000..268a312
+--- /dev/null
++++ b/third_party/blink/renderer/shadowblock/context_map.cc
+@@ -0,0 +1,19 @@
++#include "third_party/blink/renderer/shadowblock/context_map.h"
++
++#include "third_party/blink/renderer/shadowblock/types.h"
++
++namespace ShadowBlock {
++
++blink::Document* ContextMap::GetDocument(IsolateId shadowblock_id) const {
++  auto search = map_.find(shadowblock_id);
++  if (search == map_.end()) {
++    return nullptr;
++  }
++  return search->second;
++}
++
++void ContextMap::SetContextAndDocument(IsolateId shadowblock_id, blink::Document* document) {
++  map_[shadowblock_id] = document;
++}
++
++} // namespace ShadowBlock
+diff --git a/third_party/blink/renderer/shadowblock/context_map.h b/third_party/blink/renderer/shadowblock/context_map.h
+new file mode 100644
+index 0000000..4105404
+--- /dev/null
++++ b/third_party/blink/renderer/shadowblock/context_map.h
+@@ -0,0 +1,21 @@
++#ifndef THIRD_PARTY_BLINK_RENDERER_SHADOWBLOCK_CONTEXT_MAP_H
++#define THIRD_PARTY_BLINK_RENDERER_SHADOWBLOCK_CONTEXT_MAP_H
++#include <map>
++
++#include "third_party/blink/renderer/core/dom/document.h"
++#include "third_party/blink/renderer/shadowblock/types.h"
++
++namespace ShadowBlock {
++
++class ContextMap {
++  public:
++    blink::Document* GetDocument(IsolateId shadowblock_id) const;
++    void SetContextAndDocument(IsolateId shadowblock_id, blink::Document* document);
++
++  private:
++    std::map<IsolateId, blink::Document*> map_; 
++};
++
++} // namespace ShadowBlock
++
++#endif // THIRD_PARTY_BLINK_RENDERER_SHADOWBLOCK_CONTEXT_MAP_H
+diff --git a/third_party/blink/renderer/shadowblock/flags.h b/third_party/blink/renderer/shadowblock/flags.h
+new file mode 100644
+index 0000000..b3f46e7
+--- /dev/null
++++ b/third_party/blink/renderer/shadowblock/flags.h
+@@ -0,0 +1,10 @@
++#ifndef THIRD_PARTY_BLINK_RENDERER_SHADOWBLOCK_FLAGS_H_
++#define THIRD_PARTY_BLINK_RENDERER_SHADOWBLOCK_FLAGS_H_
++
++// Define functionality-related macros here
++// Available flags:
++// (1) USE_URL_STACK: use url-formatted stack trace instead of ids
++#define USE_URL_STACK
++
++#endif // THIRD_PARTY_BLINK_RENDERER_SHADOWBLOCK_FLAGS_H_
++
+diff --git a/third_party/blink/renderer/shadowblock/logging.h b/third_party/blink/renderer/shadowblock/logging.h
+new file mode 100644
+index 0000000..c1f9bb6b
+--- /dev/null
++++ b/third_party/blink/renderer/shadowblock/logging.h
+@@ -0,0 +1,18 @@
++#ifndef THIRD_PARTY_BLINK_RENDERER_SHADOWBLOCK_LOGGING_H_
++#define THIRD_PARTY_BLINK_RENDERER_SHADOWBLOCK_LOGGING_H_
++
++// Pick the information that you want to print out
++#define PRINT_ELEMENT_MARKING_STATS false
++#define PRINT_CALLSTACK_STATS false
++#define PRINT_ELEMENT_HIDING_STATS false
++#define PRINT_SOCKET_SERVER_INFO false
++
++#define ENABLE_PRINT                                            \
++        PRINT_ELEMENT_MARKING_STATS || PRINT_CALLSTACK_STATS || \
++        PRINT_ELEMENT_HIDING_STATS || PRINT_SOCKET_SERVER_INFO
++
++#if ENABLE_PRINT
++#include <iostream>
++#endif
++
++#endif // THIRD_PARTY_BLINK_RENDERER_SHADOWBLOCK_LOGGING_H_
+diff --git a/third_party/blink/renderer/shadowblock/shadowblock.h b/third_party/blink/renderer/shadowblock/shadowblock.h
+new file mode 100644
+index 0000000..8d94c6d
+--- /dev/null
++++ b/third_party/blink/renderer/shadowblock/shadowblock.h
+@@ -0,0 +1,16 @@
++#ifndef THIRD_PARTY_BLINK_RENDERER_SHADOWBLOCK_SHADOWBLOCK_H_
++#define THIRD_PARTY_BLINK_RENDERER_SHADOWBLOCK_SHADOWBLOCK_H_
++
++// Buffer size for one segment of the CSS selector string
++#define SHADOWBLOCK_CSS_SOCKET_MSG_SEGMENT_BUFFER_LEN 512000
++// Buffer size of entire selector string
++#define SHADOWBLOCK_CSS_SOCKET_MSG_BUFFER_LEN 1024000
++
++// Socket server consts
++#define SHADOWBLOCK_CSS_SOCKET_SERVER_PORT 8888
++#define SHADOWBLOCK_CSS_SOCKET_SERVER_IP "127.0.0.1"
++
++// Switch of HTML CSS module
++#define ENABLE_HTML_RULES true
++
++#endif // THIRD_PARTY_BLINK_RENDERER_SHADOWBLOCK_SHADOWBLOCK_H_
+diff --git a/third_party/blink/renderer/shadowblock/types.h b/third_party/blink/renderer/shadowblock/types.h
+new file mode 100644
+index 0000000..7770f70
+--- /dev/null
++++ b/third_party/blink/renderer/shadowblock/types.h
+@@ -0,0 +1,11 @@
++#ifndef THIRD_PARTY_BLINK_RENDERER_SHADOWBLOCK_TYPES_H_
++#define THIRD_PARTY_BLINK_RENDERER_SHADOWBLOCK_TYPES_H_
++
++namespace ShadowBlock {
++
++typedef uint64_t ScriptId;
++typedef uint64_t IsolateId;
++
++} // namaspace ShadowBlock
++
++#endif // THIRD_PARTY_BLINK_RENDERER_SHADOWBLOCK_TYPES_H_

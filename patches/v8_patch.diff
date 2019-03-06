@@ -1,0 +1,93 @@
+diff --git a/include/v8-inspector.h b/include/v8-inspector.h
+index 7020135..ec45d08 100644
+--- a/include/v8-inspector.h
++++ b/include/v8-inspector.h
+@@ -112,6 +112,12 @@ class V8_EXPORT V8StackTrace {
+   buildInspectorObject() const = 0;
+   virtual std::unique_ptr<StringBuffer> toString() const = 0;
+ 
++  // @SB
++  // Using ids
++  virtual std::unique_ptr<StringBuffer> toUniqueScriptIdString() const = 0;
++  // Using urls
++  virtual std::unique_ptr<StringBuffer> toUniqueScriptUrlString() const = 0;
++
+   // Safe to pass between threads, drops async chain.
+   virtual std::unique_ptr<V8StackTrace> clone() = 0;
+ };
+diff --git a/src/inspector/v8-stack-trace-impl.cc b/src/inspector/v8-stack-trace-impl.cc
+index 8bf16b4..03a366d 100644
+--- a/src/inspector/v8-stack-trace-impl.cc
++++ b/src/inspector/v8-stack-trace-impl.cc
+@@ -10,6 +10,9 @@
+ #include "src/inspector/v8-inspector-impl.h"
+ #include "src/inspector/wasm-translation.h"
+ 
++// @SB
++#include <set>
++
+ namespace v8_inspector {
+ 
+ int V8StackTraceImpl::maxCallStackSizeToCapture = 200;
+@@ -303,6 +306,46 @@ std::unique_ptr<StringBuffer> V8StackTraceImpl::toString() const {
+   return StringBufferImpl::adopt(string);
+ }
+ 
++// @SB
++// Using ids
++std::unique_ptr<StringBuffer> V8StackTraceImpl::toUniqueScriptIdString() const {
++  String16Builder stackTrace;
++  std::set<String16> scriptIdSet;
++  // Convert the stack trace into a ScriptId set to remove
++  // all duplicates
++  for (size_t i = 0; i < m_frames.size(); ++i) {
++    const StackFrame& frame = *m_frames[i];
++    scriptIdSet.insert(frame.scriptId());
++  }
++  // Reassemble the set to a string to prepare it for being
++  // returned to Blink
++  for (auto it : scriptIdSet) {
++    stackTrace.append(it);
++    stackTrace.append(' ');
++  }
++  String16 string = stackTrace.toString();
++  return StringBufferImpl::adopt(string);
++}
++
++std::unique_ptr<StringBuffer> V8StackTraceImpl::toUniqueScriptUrlString() const {
++  String16Builder stackTrace;
++  std::set<String16> scriptUrlSet;
++  // Convert the stack trace into a ScriptUrl set to remove
++  // all duplicates
++  for (size_t i = 0; i < m_frames.size(); ++i) {
++    const StackFrame& frame = *m_frames[i];
++    scriptUrlSet.insert(frame.sourceURL());
++  }
++  // Reassemble the set to a string to prepare it for being
++  // returned to Blink
++  for (auto it : scriptUrlSet) {
++    stackTrace.append(it);
++    stackTrace.append(' ');
++  }
++  String16 string = stackTrace.toString();
++  return StringBufferImpl::adopt(string);
++}
++
+ bool V8StackTraceImpl::isEqualIgnoringTopFrame(
+     V8StackTraceImpl* stackTrace) const {
+   StackFrameIterator current(this);
+diff --git a/src/inspector/v8-stack-trace-impl.h b/src/inspector/v8-stack-trace-impl.h
+index 1142cfa..ec6a8d9 100644
+--- a/src/inspector/v8-stack-trace-impl.h
++++ b/src/inspector/v8-stack-trace-impl.h
+@@ -80,6 +80,10 @@ class V8StackTraceImpl : public V8StackTrace {
+       const override;
+   std::unique_ptr<StringBuffer> toString() const override;
+ 
++  // @SB
++  std::unique_ptr<StringBuffer> toUniqueScriptIdString() const override;
++  std::unique_ptr<StringBuffer> toUniqueScriptUrlString() const override;
++
+   bool isEqualIgnoringTopFrame(V8StackTraceImpl* stackTrace) const;
+ 
+  private:
