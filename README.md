@@ -28,17 +28,10 @@ We provide both the binaries (**download them from GitHub's [`release` tab](http
 ## Run
 Binaries are located in the release folder. Please follow the steps below to run it.
 
-[1] (Linux) Unzip the folder `ShadowBlock-Linux` from `ShadowBlock-Linux.tar.gz`;
-
-[1] (Mac OS X) Unzip the folder `ShadowBlock-OSX` from `ShadowBlock-OSX.zip`;
-
-[2] (Linux) Open another terminal and start Chromium with a fresh user profile by `ShadowBlock-Linux/chrome --no-sandbox --user-data-dir=/PATH/TO/NEW/PROFILE`. Note you need to wait for several (~5) minutes for Chromium to automatically download the EasyList that will be used by ShadowBlock;
-
-[2] (Mac OS X) Open another terminal and start Chromium with a fresh user profile by `ShadowBlock-OSX/Chromium.app/Contents/MacOS/Chromium --no-sandbox --user-data-dir=/PATH/TO/NEW/PROFILE`. Note you need to wait for several (~5) minutes for Chromium to automatically download the EasyList that will be used by ShadowBlock;
-
-[3] Once the `Indexed Rules` folder is generated under the `Subreousrce Filter` folder in user profile (i.e. `/PATH/TO/NEW/PROFILE` in Step 3), the compatible EasyList file is already in place and you are ready to browse. Be advised that (i) the downloaded filter list is a truncated version, with the least-frequently-used rules filtered out to speed up the page loads. If you prefer a complete list, refer to this [tutorial](https://cs.chromium.org/chromium/src/components/subresource_filter/FILTER_LIST_GENERATION.md); and (ii) this generation process only needs to be performed once as the downloaded ruleset persists in the profile;
-
-[4] Restart Chromium and browse normally.
+1. (**Linux**) Unzip the folder `ShadowBlock-Linux` from `ShadowBlock-Linux.tar.gz` | (**Mac OS X**) Unzip the folder `ShadowBlock-OSX` from `ShadowBlock-OSX.zip`;
+2. (**Linux**) Open another terminal and start Chromium with a fresh user profile by `ShadowBlock-Linux/chrome --no-sandbox --user-data-dir=/PATH/TO/NEW/PROFILE`. Note you need to wait for several (~5) minutes for Chromium to automatically download the EasyList that will be used by ShadowBlock | (**Mac OS X**) Open another terminal and start Chromium with a fresh user profile by `ShadowBlock-OSX/Chromium.app/Contents/MacOS/Chromium --no-sandbox --user-data-dir=/PATH/TO/NEW/PROFILE`. Note you need to wait for several (~5) minutes for Chromium to automatically download the EasyList that will be used by ShadowBlock;
+3. Once the `Indexed Rules` folder is generated under the `Subreousrce Filter` folder in user profile (i.e. `/PATH/TO/NEW/PROFILE` in Step 3), the compatible EasyList file is already in place and you are ready to browse. Be advised that (i) the downloaded filter list is a truncated version, with the least-frequently-used rules filtered out to speed up the page loads. If you prefer a complete list, refer to this [tutorial](https://cs.chromium.org/chromium/src/components/subresource_filter/FILTER_LIST_GENERATION.md); and (ii) this generation process only needs to be performed once as the downloaded ruleset persists in the profile;
+4. Restart Chromium and browse normally.
 
 ## Build from scratch
 Our source code is provided as Chromium patches. Follow these steps to apply and integrate them into stock Chromium.
@@ -62,7 +55,7 @@ ffmpeg_branding="Chrome"
 5. `autoninja -C out/ShadowBlock-[Linux|OSX]` and you will get the binary in `out/ShadowBlock-[Linux|OSX]` that is essentially as same as the one provided by us. Now if you choose to use existing `shadowblock_elemhide_server` executable, you can move to the **"Run"** section above to start using it.
 
 
-If you prefer building `shadowblock_css_socket_server` from scratch as well, follow these steps further:
+If you prefer building `shadowblock_elemhide_server` from scratch as well, follow these steps further:
 1. Clone the repo of [**libadblockplus**](https://github.com/adblockplus/libadblockplus);
 2. `./ensure_dependencies.py` to install necessary dependencies;
 3. `make get-prebuilt-v8` to download the v8 library `libv8_monolith.a`, and copy it to the root directory of `libadblockplus`;
