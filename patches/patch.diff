@@ -1,5 +1,71 @@
+diff --git a/chrome/browser/BUILD.gn b/chrome/browser/BUILD.gn
+index 5fc7de79df45..93fd65fd3fd1 100644
+--- a/chrome/browser/BUILD.gn
++++ b/chrome/browser/BUILD.gn
+@@ -490,6 +490,11 @@ jumbo_split_static_library("browser") {
+     "download/trusted_sources_manager.cc",
+     "download/trusted_sources_manager.h",
+     "download/trusted_sources_manager_win.cc",
++
++    # @SB
++    "elemhide_server_runner.h",
++    "elemhide_server_runner.cc",
++
+     "engagement/important_sites_usage_counter.cc",
+     "engagement/important_sites_usage_counter.h",
+     "engagement/important_sites_util.cc",
+diff --git a/chrome/browser/chrome_browser_main.cc b/chrome/browser/chrome_browser_main.cc
+index c3b611c04e9c..41bb5debbcea 100644
+--- a/chrome/browser/chrome_browser_main.cc
++++ b/chrome/browser/chrome_browser_main.cc
+@@ -815,6 +815,10 @@ void ChromeBrowserMainParts::PostEarlyInitialization() {
+   TRACE_EVENT0("startup", "ChromeBrowserMainParts::PostEarlyInitialization");
+   for (size_t i = 0; i < chrome_extra_parts_.size(); ++i)
+     chrome_extra_parts_[i]->PostEarlyInitialization();
++  // @SB
++  if (!elemhide_server_runner_.IsElemhideServerRunning()) {
++    elemhide_server_runner_.RunElemhideServer();
++  }
+ }
+ 
+ void ChromeBrowserMainParts::ToolkitInitialized() {
+@@ -1936,6 +1940,10 @@ void ChromeBrowserMainParts::PostDestroyThreads() {
+   chromeos::CrosSettings::Shutdown();
+ #endif  // defined(OS_CHROMEOS)
+ #endif  // defined(OS_ANDROID)
++
++  // @SB
++  // Terminate elemhide server before destroying browser processes.
++  elemhide_server_runner_.TerminateElemhideServer();
+ }
+ 
+ // Public members:
+diff --git a/chrome/browser/chrome_browser_main.h b/chrome/browser/chrome_browser_main.h
+index 45b0daed8591..832a119f4bb3 100644
+--- a/chrome/browser/chrome_browser_main.h
++++ b/chrome/browser/chrome_browser_main.h
+@@ -7,6 +7,9 @@
+ 
+ #include <memory>
+ 
++// @SB
++#include "chrome/browser/elemhide_server_runner.h"
++
+ #include "base/macros.h"
+ #include "build/build_config.h"
+ #include "chrome/browser/chrome_browser_field_trials.h"
+@@ -92,6 +95,9 @@ class ChromeBrowserMainParts : public content::BrowserMainParts {
+   Profile* profile() { return profile_; }
+ 
+  private:
++  // @SB
++  ElemhideServerRunner elemhide_server_runner_;
++
+   friend class ChromeBrowserMainPartsTestApi;
+ 
+   // Constructs the metrics service and initializes metrics recording.
 diff --git a/chrome/browser/component_updater/subresource_filter_component_installer.cc b/chrome/browser/component_updater/subresource_filter_component_installer.cc
-index cd1ffa3..9a18c53 100644
+index cd1ffa3dbd74..9a18c533f9c4 100644
 --- a/chrome/browser/component_updater/subresource_filter_component_installer.cc
 +++ b/chrome/browser/component_updater/subresource_filter_component_installer.cc
 @@ -17,6 +17,9 @@
@@ -26,8 +92,104 @@ index cd1ffa3..9a18c53 100644
      return;
    }
  
+diff --git a/chrome/browser/elemhide_server_runner.cc b/chrome/browser/elemhide_server_runner.cc
+new file mode 100644
+index 000000000000..91de11714644
+--- /dev/null
++++ b/chrome/browser/elemhide_server_runner.cc
+@@ -0,0 +1,62 @@
++#include "chrome/browser/elemhide_server_runner.h"
++
++// Better use Chromium's code base instead of OS's
++#include "base/files/file_path.h"
++#include "base/path_service.h"
++
++#include <string>
++
++void ElemhideServerRunner::RunElemhideServer() {
++  base::FilePath elemhide_server_binary_filename;
++  base::PathService::Get(base::DIR_EXE, &elemhide_server_binary_filename);
++
++#if defined(OS_LINUX) || defined(OS_WIN)
++  elemhide_server_binary_filename = elemhide_server_binary_filename.AppendASCII("bin/shadowblock_elemhide_server");
++#endif
++#if defined(OS_MACOSX)
++  elemhide_server_binary_filename = elemhide_server_binary_filename.AppendASCII("shadowblock_elemhide_server");
++#endif
++
++#if defined(OS_LINUX) || defined(OS_MACOSX)
++  std::string run_elemhide_server_binary_command;
++  run_elemhide_server_binary_command.append(elemhide_server_binary_filename.value());
++  // Append & to make the execution background
++  run_elemhide_server_binary_command.append(" &");
++#endif
++#if defined(OS_WIN)
++  std::wstring run_elemhide_server_binary_command;
++  run_elemhide_server_binary_command.append(elemhide_server_binary_filename.value());
++  // Append & to make the execution background
++  run_elemhide_server_binary_command.append(L" &");
++#endif
++  std::cout << "[SB][info] Running elemhide server binary..."
++            << std::endl;
++
++  // Execute the command in shell
++#if defined(OS_LINUX) || defined(OS_MACOSX)
++  int ret_value = system(run_elemhide_server_binary_command.c_str());
++#endif
++#if defined(OS_WIN)
++  int ret_value = _wsystem(run_elemhide_server_binary_command.c_str());
++#endif
++  if (ret_value != 0) {
++    std::cout << "[SB][error] Elemhide server was NOT successfully started!"
++              << std::endl;
++  } else {
++    std::cout << "[SB][info] Elemhide server was successfully started."
++              << std::endl;
++  }
++}
++
++void ElemhideServerRunner::TerminateElemhideServer() {
++#if defined(OS_LINUX) || defined(OS_MACOSX)
++  int ret_value = system("pkill shadowblock_ele");
++  if (ret_value != 0) {
++    std::cout << "[SB][error] Elemhide server was NOT successfully killed!"
++              << std::endl;
++  } else {
++    std::cout << "[SB][info] Elemhide server was successfully killed."
++              << std::endl;
++  }
++#endif
++}
+\ No newline at end of file
+diff --git a/chrome/browser/elemhide_server_runner.h b/chrome/browser/elemhide_server_runner.h
+new file mode 100644
+index 000000000000..4fcbec241c10
+--- /dev/null
++++ b/chrome/browser/elemhide_server_runner.h
+@@ -0,0 +1,21 @@
++#ifndef CHROME_BROWSER_ELEMHIDE_SERVER_H_
++#define CHROME_BROWSER_ELEMHIDE_SERVER_H_
++
++#include <iostream>
++
++#include <stdlib.h>
++
++class ElemhideServerRunner {
++  public:
++    bool IsElemhideServerRunning() const { return is_elemhide_server_running_; }
++    void SetIsElemhideServerRunning(bool is_elemhide_server_running) {
++      is_elemhide_server_running_ = is_elemhide_server_running;
++    }
++    void RunElemhideServer();
++    void TerminateElemhideServer();
++
++  private:
++    bool is_elemhide_server_running_ = false;
++};
++
++#endif // TCHROME_BROWSER_ELEMHIDE_SERVER_H_
 diff --git a/chrome/renderer/chrome_content_renderer_client.cc b/chrome/renderer/chrome_content_renderer_client.cc
-index af2fc4e..0af9549 100644
+index af2fc4ef8586..0af95498a119 100644
 --- a/chrome/renderer/chrome_content_renderer_client.cc
 +++ b/chrome/renderer/chrome_content_renderer_client.cc
 @@ -192,6 +192,9 @@
@@ -41,7 +203,7 @@ index af2fc4e..0af9549 100644
  using autofill::PasswordAutofillAgent;
  using autofill::PasswordGenerationAgent;
 diff --git a/components/subresource_filter/core/browser/subresource_filter_features.cc b/components/subresource_filter/core/browser/subresource_filter_features.cc
-index 3555c7f..70e5ffa 100644
+index 3555c7f0b9d7..70e5ffa70ef2 100644
 --- a/components/subresource_filter/core/browser/subresource_filter_features.cc
 +++ b/components/subresource_filter/core/browser/subresource_filter_features.cc
 @@ -287,7 +287,10 @@ Configuration Configuration::MakePresetForPerformanceTestingDryRunOnAllSites() {
@@ -57,7 +219,7 @@ index 3555c7f..70e5ffa 100644
  }
  
 diff --git a/third_party/blink/renderer/bindings/core/v8/script_controller.cc b/third_party/blink/renderer/bindings/core/v8/script_controller.cc
-index abaa977..0064a9f 100644
+index abaa977cb62a..0064a9f06aa4 100644
 --- a/third_party/blink/renderer/bindings/core/v8/script_controller.cc
 +++ b/third_party/blink/renderer/bindings/core/v8/script_controller.cc
 @@ -71,6 +71,9 @@
@@ -88,7 +250,7 @@ index abaa977..0064a9f 100644
      maybe_result = V8ScriptRunner::RunCompiledScript(GetIsolate(), script,
                                                       GetFrame()->GetDocument());
 diff --git a/third_party/blink/renderer/bindings/core/v8/source_location.cc b/third_party/blink/renderer/bindings/core/v8/source_location.cc
-index 476a14a..3e3ab85 100644
+index 476a14a5577c..3e3ab8525a3a 100644
 --- a/third_party/blink/renderer/bindings/core/v8/source_location.cc
 +++ b/third_party/blink/renderer/bindings/core/v8/source_location.cc
 @@ -201,4 +201,19 @@ String SourceLocation::ToString() const {
@@ -112,7 +274,7 @@ index 476a14a..3e3ab85 100644
 +
  }  // namespace blink
 diff --git a/third_party/blink/renderer/bindings/core/v8/source_location.h b/third_party/blink/renderer/bindings/core/v8/source_location.h
-index 5ed4a1a..8cf65a9 100644
+index 5ed4a1aada59..8cf65a9c6550 100644
 --- a/third_party/blink/renderer/bindings/core/v8/source_location.h
 +++ b/third_party/blink/renderer/bindings/core/v8/source_location.h
 @@ -68,6 +68,12 @@ class CORE_EXPORT SourceLocation {
@@ -129,7 +291,7 @@ index 5ed4a1a..8cf65a9 100644
    std::unique_ptr<v8_inspector::protocol::Runtime::API::StackTrace>
    BuildInspectorObject() const;
 diff --git a/third_party/blink/renderer/core/BUILD.gn b/third_party/blink/renderer/core/BUILD.gn
-index 107f8ae..5f01ae33 100644
+index 107f8ae20c03..5f01ae33459a 100644
 --- a/third_party/blink/renderer/core/BUILD.gn
 +++ b/third_party/blink/renderer/core/BUILD.gn
 @@ -172,6 +172,9 @@ component("core") {
@@ -143,7 +305,7 @@ index 107f8ae..5f01ae33 100644
      "//third_party/blink/renderer/core/accessibility",
      "//third_party/blink/renderer/core/animation",
 diff --git a/third_party/blink/renderer/core/css/css_computed_style_declaration.cc b/third_party/blink/renderer/core/css/css_computed_style_declaration.cc
-index 38db457..bbee695 100644
+index 38db457fa7f6..bbee6957964d 100644
 --- a/third_party/blink/renderer/core/css/css_computed_style_declaration.cc
 +++ b/third_party/blink/renderer/core/css/css_computed_style_declaration.cc
 @@ -368,8 +368,18 @@ const CSSValue* CSSComputedStyleDeclaration::GetPropertyCSSValue(
@@ -168,7 +330,7 @@ index 38db457..bbee695 100644
    LogUnimplementedPropertyID(property_class);
    return nullptr;
 diff --git a/third_party/blink/renderer/core/css/css_properties.json5 b/third_party/blink/renderer/core/css/css_properties.json5
-index 6ffc1ab..fad3363 100644
+index 6ffc1ab1d3e1..fad33638ba47 100644
 --- a/third_party/blink/renderer/core/css/css_properties.json5
 +++ b/third_party/blink/renderer/core/css/css_properties.json5
 @@ -3331,7 +3331,9 @@
@@ -183,7 +345,7 @@ index 6ffc1ab..fad3363 100644
        default_value: "visible",
      },
 diff --git a/third_party/blink/renderer/core/css/css_value_keywords.json5 b/third_party/blink/renderer/core/css/css_value_keywords.json5
-index d896714..763ad97 100644
+index d896714e5e0e..763ad97582b0 100644
 --- a/third_party/blink/renderer/core/css/css_value_keywords.json5
 +++ b/third_party/blink/renderer/core/css/css_value_keywords.json5
 @@ -440,6 +440,9 @@
@@ -197,7 +359,7 @@ index d896714..763ad97 100644
      "collapse",
      //
 diff --git a/third_party/blink/renderer/core/css/resolver/style_adjuster.cc b/third_party/blink/renderer/core/css/resolver/style_adjuster.cc
-index a358499..89a10da 100644
+index a358499ad936..89a10da623b9 100644
 --- a/third_party/blink/renderer/core/css/resolver/style_adjuster.cc
 +++ b/third_party/blink/renderer/core/css/resolver/style_adjuster.cc
 @@ -722,5 +722,39 @@ void StyleAdjuster::AdjustComputedStyle(StyleResolverState& state,
@@ -241,29 +403,37 @@ index a358499..89a10da 100644
  }
  }  // namespace blink
 diff --git a/third_party/blink/renderer/core/dom/document.cc b/third_party/blink/renderer/core/dom/document.cc
-index 79137c8..80bf814 100644
+index 79137c8fd5dc..82110447f936 100644
 --- a/third_party/blink/renderer/core/dom/document.cc
 +++ b/third_party/blink/renderer/core/dom/document.cc
-@@ -31,6 +31,18 @@
+@@ -31,6 +31,26 @@
  
  #include <memory>
  
 +// @SB
 +// System libraries for supporting Socket
 +#include <stdio.h>
-+#include <sys/socket.h>
 +#include <stdlib.h>
-+#include <netinet/in.h>
 +#include <string.h>
-+#include <arpa/inet.h>
++#if defined(OS_POSIX) || defined(OS_MACOSX)
 +#include <unistd.h>
++#include <sys/socket.h>
++#include <netinet/in.h>
++#include <arpa/inet.h>
++#endif
++#if defined(OS_WIN)
++#include <io.h>
++#include <winsock2.h>
++#include <windows.h>
++#endif
++
 +// Logging
 +#include "third_party/blink/renderer/shadowblock/logging.h"
 +
  #include "base/auto_reset.h"
  #include "base/macros.h"
  #include "base/optional.h"
-@@ -585,6 +597,124 @@ class Document::NetworkStateObserver final
+@@ -585,6 +605,139 @@ class Document::NetworkStateObserver final
        online_observer_handle_;
  };
  
@@ -309,7 +479,12 @@ index 79137c8..80bf814 100644
 +// FIXME: switch to Chromium's internal library
 +String Document::SendAndReceiveSocketMsg(String msg, String ip_addr) {
 +  int sock = 0;
++#if defined(OS_POSIX) || defined(OS_MACOSX)
 +  ssize_t msg_code = 0;
++#endif
++#if defined(OS_WIN)
++  int msg_code = 0;
++#endif
 +  int msg_len = 0;
 +  struct sockaddr_in server_addr;
 +
@@ -319,7 +494,12 @@ index 79137c8..80bf814 100644
 +  // Buffer for one segment of the long selector string
 +  char msg_segment_buffer[SHADOWBLOCK_CSS_SOCKET_MSG_SEGMENT_BUFFER_LEN] = {0};
 +
++#if defined(OS_POSIX) || defined(OS_MACOSX)
 +  if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
++#endif
++#if defined(OS_WIN)
++  if ((sock = (int)socket(AF_INET, SOCK_STREAM, 0)) < 0) {
++#endif
 +    std::cout << "[SB-Error][ElemHide] Socket creation error"
 +              << std::endl;
 +    return "";
@@ -344,7 +524,12 @@ index 79137c8..80bf814 100644
 +  }
 +  
 +  // Send the URL
++#if defined(OS_POSIX) || defined(OS_MACOSX)
 +  send(sock, msg.Utf8().data(), strlen(msg.Utf8().data()), 0);
++#endif
++#if defined(OS_WIN)
++  send(sock, msg.Utf8().data(), (int)strlen(msg.Utf8().data()), 0);
++#endif
 +#if PRINT_SOCKET_SERVER_INFO
 +  std::cout << "[SB-Info][ElemHide] Requesting HTML rules for URL: "
 +            << msg.Utf8().data()
@@ -388,7 +573,7 @@ index 79137c8..80bf814 100644
  Document* Document::CreateForTest() {
    return MakeGarbageCollected<Document>(DocumentInit::Create());
  }
-@@ -716,6 +846,11 @@ Document::Document(const DocumentInit& initializer,
+@@ -716,6 +869,11 @@ Document::Document(const DocumentInit& initializer,
          ->ProvideDocumentToResourceFetcherProperties(*this);
      fetcher_->SetConsoleLogger(this);
  
@@ -400,7 +585,7 @@ index 79137c8..80bf814 100644
      // TODO(dcheng): Why does this need to check that DOMWindow is non-null?
      CustomElementRegistry* registry =
          frame_->DomWindow() ? frame_->DomWindow()->MaybeCustomElements()
-@@ -4045,6 +4180,22 @@ void Document::SetURL(const KURL& url) {
+@@ -4045,6 +4203,22 @@ void Document::SetURL(const KURL& url) {
    if (new_url == url_)
      return;
  
@@ -424,7 +609,7 @@ index 79137c8..80bf814 100644
    access_entry_from_url_ = nullptr;
    UpdateBaseURL();
 diff --git a/third_party/blink/renderer/core/dom/document.h b/third_party/blink/renderer/core/dom/document.h
-index fa6f25f..9b632e2 100644
+index fa6f25f1499e..9b632e2ca0b1 100644
 --- a/third_party/blink/renderer/core/dom/document.h
 +++ b/third_party/blink/renderer/core/dom/document.h
 @@ -74,6 +74,10 @@
@@ -502,7 +687,7 @@ index fa6f25f..9b632e2 100644
    friend class ThrowOnDynamicMarkupInsertionCountIncrementer;
    friend class IgnoreOpensDuringUnloadCountIncrementer;
 diff --git a/third_party/blink/renderer/core/dom/element.cc b/third_party/blink/renderer/core/dom/element.cc
-index a51bfea..f936f31 100644
+index a51bfea03e3d..f936f3158e4a 100644
 --- a/third_party/blink/renderer/core/dom/element.cc
 +++ b/third_party/blink/renderer/core/dom/element.cc
 @@ -28,6 +28,9 @@
@@ -703,7 +888,7 @@ index a51bfea..f936f31 100644
  
  bool Element::HasLegalLinkAttribute(const QualifiedName&) const {
 diff --git a/third_party/blink/renderer/core/dom/element.h b/third_party/blink/renderer/core/dom/element.h
-index f16e254..e8e598e 100644
+index f16e254d4f10..e8e598eb37f3 100644
 --- a/third_party/blink/renderer/core/dom/element.h
 +++ b/third_party/blink/renderer/core/dom/element.h
 @@ -158,6 +158,14 @@ class CORE_EXPORT Element : public ContainerNode {
@@ -734,7 +919,7 @@ index f16e254..e8e598e 100644
    void ScrollLayoutBoxTo(const ScrollToOptions*);
    void ScrollFrameBy(const ScrollToOptions*);
 diff --git a/third_party/blink/renderer/core/exported/web_frame_content_dumper.cc b/third_party/blink/renderer/core/exported/web_frame_content_dumper.cc
-index 5d68324..224e1f8 100644
+index 5d68324b9c70..224e1f819f49 100644
 --- a/third_party/blink/renderer/core/exported/web_frame_content_dumper.cc
 +++ b/third_party/blink/renderer/core/exported/web_frame_content_dumper.cc
 @@ -60,12 +60,15 @@ void FrameContentAsPlainText(size_t max_chars,
@@ -755,7 +940,7 @@ index 5d68324..224e1f8 100644
      }
  
 diff --git a/third_party/blink/renderer/core/frame/web_local_frame_impl.cc b/third_party/blink/renderer/core/frame/web_local_frame_impl.cc
-index ae240d4..d86a33b 100644
+index ae240d4c7d99..d86a33b63016 100644
 --- a/third_party/blink/renderer/core/frame/web_local_frame_impl.cc
 +++ b/third_party/blink/renderer/core/frame/web_local_frame_impl.cc
 @@ -623,8 +623,11 @@ WebSize WebLocalFrameImpl::DocumentSize() const {
@@ -772,7 +957,7 @@ index ae240d4..d86a33b 100644
    }
  
 diff --git a/third_party/blink/renderer/core/html/html_area_element.cc b/third_party/blink/renderer/core/html/html_area_element.cc
-index 389f334..d05a756 100644
+index 389f334ba232..d05a75627e7d 100644
 --- a/third_party/blink/renderer/core/html/html_area_element.cc
 +++ b/third_party/blink/renderer/core/html/html_area_element.cc
 @@ -195,8 +195,12 @@ bool HTMLAreaElement::IsMouseFocusable() const {
@@ -790,7 +975,7 @@ index 389f334..d05a756 100644
  
    return SupportsFocus() && Element::tabIndex() >= 0;
 diff --git a/third_party/blink/renderer/core/html/lazy_load_frame_observer.cc b/third_party/blink/renderer/core/html/lazy_load_frame_observer.cc
-index 96facfd..cb61cc4 100644
+index 96facfd6515a..cb61cc46f225 100644
 --- a/third_party/blink/renderer/core/html/lazy_load_frame_observer.cc
 +++ b/third_party/blink/renderer/core/html/lazy_load_frame_observer.cc
 @@ -57,6 +57,10 @@ bool IsFrameProbablyHidden(const DOMRectReadOnly& bounding_client_rect,
@@ -805,7 +990,7 @@ index 96facfd..cb61cc4 100644
          break;
      }
 diff --git a/third_party/blink/renderer/core/layout/layout_block.cc b/third_party/blink/renderer/core/layout/layout_block.cc
-index 39c6896..90115488 100644
+index 39c6896d402b..90115488e6dd 100644
 --- a/third_party/blink/renderer/core/layout/layout_block.cc
 +++ b/third_party/blink/renderer/core/layout/layout_block.cc
 @@ -1376,8 +1376,11 @@ PositionWithAffinity LayoutBlock::PositionForPointIfOutsideAtomicInlineLevel(
@@ -822,7 +1007,7 @@ index 39c6896..90115488 100644
  }
  
 diff --git a/third_party/blink/renderer/core/layout/layout_box.cc b/third_party/blink/renderer/core/layout/layout_box.cc
-index a5fbded..174404d 100644
+index a5fbdedcd932..174404d30e85 100644
 --- a/third_party/blink/renderer/core/layout/layout_box.cc
 +++ b/third_party/blink/renderer/core/layout/layout_box.cc
 @@ -1766,7 +1766,10 @@ static bool IsCandidateForOpaquenessTest(const LayoutBox& child_box) {
@@ -853,7 +1038,7 @@ index a5fbded..174404d 100644
  
      if (!layout_object->IsBox())
 diff --git a/third_party/blink/renderer/core/layout/layout_inline.cc b/third_party/blink/renderer/core/layout/layout_inline.cc
-index 93361bc..3d7389f 100644
+index 93361bcddae6..3d7389fff6c0 100644
 --- a/third_party/blink/renderer/core/layout/layout_inline.cc
 +++ b/third_party/blink/renderer/core/layout/layout_inline.cc
 @@ -1803,7 +1803,10 @@ void LayoutInline::ComputeSelfHitTestRects(
@@ -869,7 +1054,7 @@ index 93361bc..3d7389f 100644
  
    if (StyleRef().DraggableRegionMode() == EDraggableRegionMode::kNone)
 diff --git a/third_party/blink/renderer/core/layout/layout_object.h b/third_party/blink/renderer/core/layout/layout_object.h
-index 4ae2b09..e2037f6 100644
+index 4ae2b09283bc..e2037f6cfa0e 100644
 --- a/third_party/blink/renderer/core/layout/layout_object.h
 +++ b/third_party/blink/renderer/core/layout/layout_object.h
 @@ -1581,8 +1581,11 @@ class CORE_EXPORT LayoutObject : public ImageResourceObserver,
@@ -897,7 +1082,7 @@ index 4ae2b09..e2037f6 100644
              StyleRef().PointerEvents() != EPointerEvents::kNone) &&
             !IsInert();
 diff --git a/third_party/blink/renderer/core/layout/svg/layout_svg_image.cc b/third_party/blink/renderer/core/layout/svg/layout_svg_image.cc
-index b05921f..7d73a92 100644
+index b05921f101e7..7d73a9238586 100644
 --- a/third_party/blink/renderer/core/layout/svg/layout_svg_image.cc
 +++ b/third_party/blink/renderer/core/layout/svg/layout_svg_image.cc
 @@ -180,7 +180,10 @@ bool LayoutSVGImage::NodeAtPoint(HitTestResult& result,
@@ -913,7 +1098,7 @@ index b05921f..7d73a92 100644
  
    TransformedHitTestLocation local_location(location_in_container,
 diff --git a/third_party/blink/renderer/core/layout/svg/layout_svg_shape.cc b/third_party/blink/renderer/core/layout/svg/layout_svg_shape.cc
-index a421fd8..44f11e1 100644
+index a421fd8a43f8..44f11e15ca0f 100644
 --- a/third_party/blink/renderer/core/layout/svg/layout_svg_shape.cc
 +++ b/third_party/blink/renderer/core/layout/svg/layout_svg_shape.cc
 @@ -358,7 +358,10 @@ bool LayoutSVGShape::NodeAtPoint(HitTestResult& result,
@@ -929,7 +1114,7 @@ index a421fd8..44f11e1 100644
  
    TransformedHitTestLocation local_location(location_in_parent,
 diff --git a/third_party/blink/renderer/core/layout/svg/line/svg_inline_text_box.cc b/third_party/blink/renderer/core/layout/svg/line/svg_inline_text_box.cc
-index 44562a1..c4f9cc3 100644
+index 44562a162ffd..c4f9cc3c5739 100644
 --- a/third_party/blink/renderer/core/layout/svg/line/svg_inline_text_box.cc
 +++ b/third_party/blink/renderer/core/layout/svg/line/svg_inline_text_box.cc
 @@ -308,7 +308,10 @@ bool SVGInlineTextBox::NodeAtPoint(HitTestResult& result,
@@ -945,7 +1130,7 @@ index 44562a1..c4f9cc3 100644
    if (hit_rules.can_hit_bounding_box ||
        (hit_rules.can_hit_stroke &&
 diff --git a/third_party/blink/renderer/core/layout/svg/svg_layout_support.cc b/third_party/blink/renderer/core/layout/svg/svg_layout_support.cc
-index e59c0a2..59c2ad5 100644
+index e59c0a20b297..59c2ad524464 100644
 --- a/third_party/blink/renderer/core/layout/svg/svg_layout_support.cc
 +++ b/third_party/blink/renderer/core/layout/svg/svg_layout_support.cc
 @@ -64,7 +64,10 @@ FloatRect SVGLayoutSupport::LocalVisualRect(const LayoutObject& object) {
@@ -960,7 +1145,7 @@ index e59c0a2..59c2ad5 100644
      return FloatRect();
  
 diff --git a/third_party/blink/renderer/core/loader/frame_fetch_context.cc b/third_party/blink/renderer/core/loader/frame_fetch_context.cc
-index 812e49a..97cfb84 100644
+index 812e49af4173..97cfb8433016 100644
 --- a/third_party/blink/renderer/core/loader/frame_fetch_context.cc
 +++ b/third_party/blink/renderer/core/loader/frame_fetch_context.cc
 @@ -1243,6 +1243,13 @@ ResourceLoadPriority FrameFetchContext::ModifyPriorityForExperiments(
@@ -978,7 +1163,7 @@ index 812e49a..97cfb84 100644
      const ResourceRequest& resource_request,
      ResourceType type) {
 diff --git a/third_party/blink/renderer/core/loader/frame_fetch_context.h b/third_party/blink/renderer/core/loader/frame_fetch_context.h
-index 6f9d676..a884dbf 100644
+index 6f9d67669ea8..a884dbff03f1 100644
 --- a/third_party/blink/renderer/core/loader/frame_fetch_context.h
 +++ b/third_party/blink/renderer/core/loader/frame_fetch_context.h
 @@ -152,6 +152,10 @@ class CORE_EXPORT FrameFetchContext final : public BaseFetchContext {
@@ -993,7 +1178,7 @@ index 6f9d676..a884dbf 100644
  
   private:
 diff --git a/third_party/blink/renderer/modules/accessibility/ax_layout_object.cc b/third_party/blink/renderer/modules/accessibility/ax_layout_object.cc
-index f8c18dd..c059ca3 100644
+index f8c18dd1137e..c059ca31dda8 100644
 --- a/third_party/blink/renderer/modules/accessibility/ax_layout_object.cc
 +++ b/third_party/blink/renderer/modules/accessibility/ax_layout_object.cc
 @@ -528,7 +528,11 @@ AXObjectInclusion AXLayoutObject::DefaultObjectInclusion(
@@ -1010,7 +1195,7 @@ index f8c18dd..c059ca3 100644
      // hierarchy inclusion.
      if (AOMPropertyOrARIAAttributeIsFalse(AOMBooleanProperty::kHidden))
 diff --git a/third_party/blink/renderer/modules/accessibility/ax_media_controls.cc b/third_party/blink/renderer/modules/accessibility/ax_media_controls.cc
-index 0043a22..2c8d189 100644
+index 0043a225ba57..2c8d18977d93 100644
 --- a/third_party/blink/renderer/modules/accessibility/ax_media_controls.cc
 +++ b/third_party/blink/renderer/modules/accessibility/ax_media_controls.cc
 @@ -143,8 +143,11 @@ String AccessibilityMediaControl::Description(
@@ -1027,7 +1212,7 @@ index 0043a22..2c8d189 100644
      return true;
  
 diff --git a/third_party/blink/renderer/modules/accessibility/ax_object.cc b/third_party/blink/renderer/modules/accessibility/ax_object.cc
-index ffd9696..849e81b 100644
+index ffd9696a8cdf..849e81b552b0 100644
 --- a/third_party/blink/renderer/modules/accessibility/ax_object.cc
 +++ b/third_party/blink/renderer/modules/accessibility/ax_object.cc
 @@ -1480,7 +1480,10 @@ bool AXObject::IsHiddenForTextAlternativeCalculation() const {
@@ -1056,7 +1241,7 @@ index ffd9696..849e81b 100644
    }
    return false;
 diff --git a/third_party/blink/renderer/platform/loader/fetch/fetch_context.h b/third_party/blink/renderer/platform/loader/fetch/fetch_context.h
-index a905289..37f6ae2 100644
+index a905289643f4..37f6ae25d34e 100644
 --- a/third_party/blink/renderer/platform/loader/fetch/fetch_context.h
 +++ b/third_party/blink/renderer/platform/loader/fetch/fetch_context.h
 @@ -234,6 +234,10 @@ class PLATFORM_EXPORT FetchContext
@@ -1071,7 +1256,7 @@ index a905289..37f6ae2 100644
    virtual void DispatchNetworkQuiet() {}
  
 diff --git a/third_party/blink/renderer/platform/loader/fetch/resource_fetcher.cc b/third_party/blink/renderer/platform/loader/fetch/resource_fetcher.cc
-index 39a53a9..a42405a 100644
+index 39a53a95b662..a42405af65a3 100644
 --- a/third_party/blink/renderer/platform/loader/fetch/resource_fetcher.cc
 +++ b/third_party/blink/renderer/platform/loader/fetch/resource_fetcher.cc
 @@ -823,6 +823,10 @@ base::Optional<ResourceRequestBlockedReason> ResourceFetcher::PrepareRequest(
@@ -1086,7 +1271,7 @@ index 39a53a9..a42405a 100644
      resource_request.SetIsAdResource();
  
 diff --git a/third_party/blink/renderer/platform/loader/fetch/resource_loader.cc b/third_party/blink/renderer/platform/loader/fetch/resource_loader.cc
-index bf5014c..965984e 100644
+index bf5014c5202e..965984e1fa14 100644
 --- a/third_party/blink/renderer/platform/loader/fetch/resource_loader.cc
 +++ b/third_party/blink/renderer/platform/loader/fetch/resource_loader.cc
 @@ -696,6 +696,10 @@ bool ResourceLoader::WillFollowRedirect(
@@ -1101,7 +1286,7 @@ index bf5014c..965984e 100644
        new_request->SetIsAdResource();
  
 diff --git a/third_party/blink/renderer/platform/runtime_enabled_features.json5 b/third_party/blink/renderer/platform/runtime_enabled_features.json5
-index fa5ca25..e29e2e7 100644
+index fa5ca25de3b7..e29e2e71d31c 100644
 --- a/third_party/blink/renderer/platform/runtime_enabled_features.json5
 +++ b/third_party/blink/renderer/platform/runtime_enabled_features.json5
 @@ -94,7 +94,9 @@
@@ -1117,15 +1302,16 @@ index fa5ca25..e29e2e7 100644
        name: "AllowActivationDelegationAttr",
 diff --git a/third_party/blink/renderer/shadowblock/BUILD.gn b/third_party/blink/renderer/shadowblock/BUILD.gn
 new file mode 100644
-index 0000000..75721ee
+index 000000000000..103e7bd949b1
 --- /dev/null
 +++ b/third_party/blink/renderer/shadowblock/BUILD.gn
-@@ -0,0 +1,15 @@
+@@ -0,0 +1,33 @@
 +import("//third_party/blink/renderer/core/core.gni")
 +
 +blink_core_sources("shadowblock") {
 +  deps = [
 +    "//v8",
++    ":download_elemhide_server_binary",
 +  ]
 +
 +  sources = [
@@ -1136,9 +1322,27 @@ index 0000000..75721ee
 +    "callstack.cc",
 +  ]
 +}
++
++action("download_elemhide_server_binary") {
++  script = "script/download_elemhide_server_binary.py"
++  outputs = [
++    "$root_out_dir/bin/shadowblock_elemhide_server",
++  ]
++
++  if (is_linux) {
++    args = [ "--os", "linux" ]
++  }
++  else if (is_win) {
++    args = [ "--os", "win" ]
++  }
++  else if (is_mac) {
++    args = [ "--os", "macos" ]
++  }
++}
+\ No newline at end of file
 diff --git a/third_party/blink/renderer/shadowblock/callstack.cc b/third_party/blink/renderer/shadowblock/callstack.cc
 new file mode 100644
-index 0000000..30db3e5
+index 000000000000..30db3e50689e
 --- /dev/null
 +++ b/third_party/blink/renderer/shadowblock/callstack.cc
 @@ -0,0 +1,171 @@
@@ -1315,7 +1519,7 @@ index 0000000..30db3e5
 +} // namespace ShadowBlock
 diff --git a/third_party/blink/renderer/shadowblock/callstack.h b/third_party/blink/renderer/shadowblock/callstack.h
 new file mode 100644
-index 0000000..556e17d
+index 000000000000..556e17d381f2
 --- /dev/null
 +++ b/third_party/blink/renderer/shadowblock/callstack.h
 @@ -0,0 +1,57 @@
@@ -1376,77 +1580,9 @@ index 0000000..556e17d
 +} // namespace ShadowBlock
 +
 +#endif // THIRD_PARTY_BLINK_RENDERER_SHADOWBLOCK_CALLSTACK_H_
-diff --git a/third_party/blink/renderer/shadowblock/context_map.cc b/third_party/blink/renderer/shadowblock/context_map.cc
-new file mode 100644
-index 0000000..268a312
---- /dev/null
-+++ b/third_party/blink/renderer/shadowblock/context_map.cc
-@@ -0,0 +1,19 @@
-+#include "third_party/blink/renderer/shadowblock/context_map.h"
-+
-+#include "third_party/blink/renderer/shadowblock/types.h"
-+
-+namespace ShadowBlock {
-+
-+blink::Document* ContextMap::GetDocument(IsolateId shadowblock_id) const {
-+  auto search = map_.find(shadowblock_id);
-+  if (search == map_.end()) {
-+    return nullptr;
-+  }
-+  return search->second;
-+}
-+
-+void ContextMap::SetContextAndDocument(IsolateId shadowblock_id, blink::Document* document) {
-+  map_[shadowblock_id] = document;
-+}
-+
-+} // namespace ShadowBlock
-diff --git a/third_party/blink/renderer/shadowblock/context_map.h b/third_party/blink/renderer/shadowblock/context_map.h
-new file mode 100644
-index 0000000..4105404
---- /dev/null
-+++ b/third_party/blink/renderer/shadowblock/context_map.h
-@@ -0,0 +1,21 @@
-+#ifndef THIRD_PARTY_BLINK_RENDERER_SHADOWBLOCK_CONTEXT_MAP_H
-+#define THIRD_PARTY_BLINK_RENDERER_SHADOWBLOCK_CONTEXT_MAP_H
-+#include <map>
-+
-+#include "third_party/blink/renderer/core/dom/document.h"
-+#include "third_party/blink/renderer/shadowblock/types.h"
-+
-+namespace ShadowBlock {
-+
-+class ContextMap {
-+  public:
-+    blink::Document* GetDocument(IsolateId shadowblock_id) const;
-+    void SetContextAndDocument(IsolateId shadowblock_id, blink::Document* document);
-+
-+  private:
-+    std::map<IsolateId, blink::Document*> map_; 
-+};
-+
-+} // namespace ShadowBlock
-+
-+#endif // THIRD_PARTY_BLINK_RENDERER_SHADOWBLOCK_CONTEXT_MAP_H
-diff --git a/third_party/blink/renderer/shadowblock/flags.h b/third_party/blink/renderer/shadowblock/flags.h
-new file mode 100644
-index 0000000..b3f46e7
---- /dev/null
-+++ b/third_party/blink/renderer/shadowblock/flags.h
-@@ -0,0 +1,10 @@
-+#ifndef THIRD_PARTY_BLINK_RENDERER_SHADOWBLOCK_FLAGS_H_
-+#define THIRD_PARTY_BLINK_RENDERER_SHADOWBLOCK_FLAGS_H_
-+
-+// Define functionality-related macros here
-+// Available flags:
-+// (1) USE_URL_STACK: use url-formatted stack trace instead of ids
-+#define USE_URL_STACK
-+
-+#endif // THIRD_PARTY_BLINK_RENDERER_SHADOWBLOCK_FLAGS_H_
-+
 diff --git a/third_party/blink/renderer/shadowblock/logging.h b/third_party/blink/renderer/shadowblock/logging.h
 new file mode 100644
-index 0000000..c1f9bb6b
+index 000000000000..c1f9bb6b8d6d
 --- /dev/null
 +++ b/third_party/blink/renderer/shadowblock/logging.h
 @@ -0,0 +1,18 @@
@@ -1468,9 +1604,86 @@ index 0000000..c1f9bb6b
 +#endif
 +
 +#endif // THIRD_PARTY_BLINK_RENDERER_SHADOWBLOCK_LOGGING_H_
+diff --git a/third_party/blink/renderer/shadowblock/script/download_elemhide_server_binary.py b/third_party/blink/renderer/shadowblock/script/download_elemhide_server_binary.py
+new file mode 100644
+index 000000000000..8d45037a15b2
+--- /dev/null
++++ b/third_party/blink/renderer/shadowblock/script/download_elemhide_server_binary.py
+@@ -0,0 +1,71 @@
++import optparse
++import urllib2
++import os
++
++parser = optparse.OptionParser()
++parser.add_option("--o", "--os", dest="os_type", help="the OS for downloading corresponding version of binary")
++(options, args) = parser.parse_args()
++if options.os_type == 'linux':
++    print("[SB][compile][info] OS type: linux")
++    url = "https://github.com/seclab-ucr/ShadowBlock/releases/download/v1.0-alpha/shadowblock_elemhide_server_linux"
++elif options.os_type == 'macos':
++    print("[SB][compile][info] OS type: macos")
++    url = "https://github.com/seclab-ucr/ShadowBlock/releases/download/v1.0-alpha/shadowblock_elemhide_server_macos"
++elif options.os_type == 'win':
++    print("[SB][compile][info] OS type: win")
++    url = "https://github.com/seclab-ucr/ShadowBlock/releases/download/v1.0-alpha/shadowblock_elemhide_server_win"
++
++if options.os_type == 'macos':
++    path_to_binary = 'Chromium.app/Contents/MacOS/shadowblock_elemhide_server'
++elif options.os_type == 'linux' or options.os_type == 'win':
++    path_to_binary = 'bin/shadowblock_elemhide_server'
++
++if os.path.isfile(path_to_binary):
++    print("[SB][compile][info] Binary already exists!")
++    exit()
++
++try:
++    u = urllib2.urlopen(url)
++except urllib2.URLError:
++    # non-HTTPs version for handling SSL certificate issue
++    print("[SB][compile][error] SSL issue during download, switching to HTTP server...")
++    if options.os_type == 'linux':
++        url = "http://terran.cs.ucr.edu/shadowblock_elemhide_server_linux"
++        u = urllib2.urlopen(url)
++    elif options.os_type == 'macos':
++        url = "http://terran.cs.ucr.edu/shadowblock_elemhide_server_macos"
++        u = urllib2.urlopen(url)
++    elif options.os_type == 'win':
++        url = "http://terran.cs.ucr.edu/shadowblock_elemhide_server_win"
++        u = urllib2.urlopen(url)
++
++print("[SB][compile][debug] Absolute path for binary: " + os.getcwd() + path_to_binary)
++f = open(path_to_binary, 'wb')
++meta = u.info()
++file_size = int(meta.getheaders("Content-Length")[0])
++print("[SB][compile][info] Downloading: %s Bytes: %s" % (url, file_size))
++
++file_size_dl = 0
++block_sz = 8192
++interval_count = 0
++
++while True:
++    interval_count += 1
++    buffer = u.read(block_sz)
++    if not buffer:
++        break
++
++    file_size_dl += len(buffer)
++    f.write(buffer)
++    if interval_count == 200:
++        status = r"[SB][compile][info] Downloaded: %10d  [%3.2f%%]" % (file_size_dl, file_size_dl * 100. / file_size)
++        status = status + chr(8)*(len(status)+1)
++        print(status)
++        interval_count = 0
++
++f.close()
++
++print("[SB][compile][info] Binary downloaded.")
++if options.os_type == 'linux' or options.os_type == 'macos':
++    print("[SB][compile][info] Granting the binary execution privilege...")
++os.system("chmod +x " + path_to_binary)
 diff --git a/third_party/blink/renderer/shadowblock/shadowblock.h b/third_party/blink/renderer/shadowblock/shadowblock.h
 new file mode 100644
-index 0000000..8d94c6d
+index 000000000000..8d94c6ddecc0
 --- /dev/null
 +++ b/third_party/blink/renderer/shadowblock/shadowblock.h
 @@ -0,0 +1,16 @@
@@ -1492,7 +1705,7 @@ index 0000000..8d94c6d
 +#endif // THIRD_PARTY_BLINK_RENDERER_SHADOWBLOCK_SHADOWBLOCK_H_
 diff --git a/third_party/blink/renderer/shadowblock/types.h b/third_party/blink/renderer/shadowblock/types.h
 new file mode 100644
-index 0000000..7770f70
+index 000000000000..7770f70d5c49
 --- /dev/null
 +++ b/third_party/blink/renderer/shadowblock/types.h
 @@ -0,0 +1,11 @@

@@ -1,5 +1,5 @@
 diff --git a/include/v8-inspector.h b/include/v8-inspector.h
-index 7020135..ec45d08 100644
+index 702013588c..ec45d08d72 100644
 --- a/include/v8-inspector.h
 +++ b/include/v8-inspector.h
 @@ -112,6 +112,12 @@ class V8_EXPORT V8StackTrace {
@@ -16,7 +16,7 @@ index 7020135..ec45d08 100644
    virtual std::unique_ptr<V8StackTrace> clone() = 0;
  };
 diff --git a/src/inspector/v8-stack-trace-impl.cc b/src/inspector/v8-stack-trace-impl.cc
-index 8bf16b4..03a366d 100644
+index 8bf16b4baf..03a366d233 100644
 --- a/src/inspector/v8-stack-trace-impl.cc
 +++ b/src/inspector/v8-stack-trace-impl.cc
 @@ -10,6 +10,9 @@
@@ -77,7 +77,7 @@ index 8bf16b4..03a366d 100644
      V8StackTraceImpl* stackTrace) const {
    StackFrameIterator current(this);
 diff --git a/src/inspector/v8-stack-trace-impl.h b/src/inspector/v8-stack-trace-impl.h
-index 1142cfa..ec6a8d9 100644
+index 1142cfaa82..ec6a8d936c 100644
 --- a/src/inspector/v8-stack-trace-impl.h
 +++ b/src/inspector/v8-stack-trace-impl.h
 @@ -80,6 +80,10 @@ class V8StackTraceImpl : public V8StackTrace {
