@@ -8,7 +8,6 @@ Feel free to contact [Shitong Zhu](mailto:shitong.zhu@email.ucr.edu) or open Git
 ## Outline
 1. Binaries (from [`release` tab](https://github.com/seclab-ucr/ShadowBlock/releases), currently versioned `ShadowBlock-v1.0-alpha`)
 ```
-── shadowblock_elemhide_server (HTML rule server)
 ── ShadowBlock-Linux.tar.gz (modified Chromium binary for Linux)
 ── ShadowBlock-OSX.zip (modified Chromium binary for Mac OS X)
 ```
