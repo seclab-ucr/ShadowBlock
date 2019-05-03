@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+
+#====================================================================
+# Usage
+# bash run_shadowblock.sh [--use-default-profile]
+# "--use-default-profile" means using the default Chromium profile
+# otherwise, ShadowBlock will create a new profile in this directory
+#====================================================================
+
 # Set up some variables
 os_type=$(uname)
 
