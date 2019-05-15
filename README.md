@@ -6,7 +6,7 @@ ShadowBlock is a modified Chromium browser that hides ads in a stealthy manner s
 Feel free to contact [Shitong Zhu](mailto:shitong.zhu@email.ucr.edu) or open GitHub issues if you run into any problem running/building ShadowBlock. 
 
 ## Outline
-1. Binaries (from [`release` tab](https://github.com/seclab-ucr/ShadowBlock/releases), currently versioned `ShadowBlock-v1.0-alpha`)
+1. Binaries (from [`release` tab](https://github.com/seclab-ucr/ShadowBlock/releases), currently versioned `ShadowBlock-v1.0`)
 ```
 ── ShadowBlock-Linux.tar.gz (modified Chromium binary for Linux)
 ── ShadowBlock-OSX.zip (modified Chromium binary for Mac OS X)
@@ -25,11 +25,10 @@ Feel free to contact [Shitong Zhu](mailto:shitong.zhu@email.ucr.edu) or open Git
 We provide both the binaries (**download them from GitHub's [`release` tab](https://github.com/seclab-ucr/ShadowBlock/releases)**) and source code (as Chromium patches) to allow for reproducibility and future extensions from research commiunity.
 
 ## Run
-Binaries are located in the release folder. Please follow the steps below to run it.
+Binaries are located in the [`release`] folder. Please follow the steps below to run them.
 
-1. (**Linux**) Unzip the folder `ShadowBlock-Linux` from `ShadowBlock-Linux.tar.gz` | (**Mac OS X**) Unzip the folder `ShadowBlock-OSX` from `ShadowBlock-OSX.zip`;
-2. (**Linux**) Open another terminal and start Chromium with a fresh user profile by `ShadowBlock-Linux/chrome --no-sandbox --user-data-dir=/PATH/TO/NEW/PROFILE`. Note you need to wait for several (~5) minutes for Chromium to automatically download the EasyList that will be used by ShadowBlock | (**Mac OS X**) Open another terminal and start Chromium with a fresh user profile by `ShadowBlock-OSX/Chromium.app/Contents/MacOS/Chromium --no-sandbox --user-data-dir=/PATH/TO/NEW/PROFILE`. Note you need to wait for several (~5) minutes for Chromium to automatically download the EasyList that will be used by ShadowBlock;
-3. Once the `Indexed Rules` folder is generated under the `Subreousrce Filter` folder in user profile (i.e. `/PATH/TO/NEW/PROFILE` in Step 3), the compatible EasyList file is already in place and you are ready to browse. Be advised that (i) the downloaded filter list is a truncated version, with the least-frequently-used rules filtered out to speed up the page loads. If you prefer a complete list, refer to this [tutorial](https://cs.chromium.org/chromium/src/components/subresource_filter/FILTER_LIST_GENERATION.md); and (ii) this generation process only needs to be performed once as the downloaded ruleset persists in the profile;
+1. Depending on the OS you use, unzip the folder `ShadowBlock-Linux` from `ShadowBlock-Linux.tar.gz`, or unzip the folder `ShadowBlock-OSX` from `ShadowBlock-OSX.zip`;
+2. Run bash script `run_shadowblock.sh` in `ShadowBlock-Linux`/`ShadowBlock-OSX` folder to start the browser. Use command `bash run_shadowblock.sh` if you want to create a new user profile in the same directory, or `bash run_shadowblock.sh --use-default-profile` if you want to use the default Chromium user profile. Note that for the first run, you need to wait for several (~5) minutes for Chromium to automatically download the EasyList used by ShadowBlock;
 4. Restart Chromium and browse normally.
 
 ## Build from scratch
@@ -51,7 +50,7 @@ enable_nacl = false
 proprietary_codecs=true
 ffmpeg_branding="Chrome"
 ```
-5. `autoninja -C out/ShadowBlock-[Linux|OSX]` and you will get the binary in `out/ShadowBlock-[Linux|OSX]` that is essentially as same as the one provided by us. Now if you choose to use existing `shadowblock_elemhide_server` executable, you can move to the **"Run"** section above to start using it.
+5. `autoninja -C out/ShadowBlock-[Linux|OSX]` and you will get the resulting binary in `out/ShadowBlock-[Linux|OSX]` that is essentially as same as the one provided by us. Now if you choose to use existing `shadowblock_elemhide_server` executable, you can move to the **"Run"** section above to start using it.
 
 
 If you prefer building `shadowblock_elemhide_server` from scratch as well, follow these steps further:
@@ -64,4 +63,8 @@ If you prefer building `shadowblock_elemhide_server` from scratch as well, follo
 ## Reference
 Check our WWW '19 paper for more architectural and technical details [[PDF](https://www.shitong.me/pdfs/www19_shadowblock.pdf)]:
 
-Shitong Zhu, Umar Iqbal, Zhongjie Wang, Zhiyun Qian, Zubair Shafiq, and Weiteng Chen. 2019. **ShadowBlock: A Lightweight and Stealthy Adblocking Browser**. In *Proceedings of the 2019 World Wide Web Conference (WWW’19), May 13–17, 2019, San Francisco, CA, USA*. ACM, New York, NY, USA, 11 pages. https://doi.org/10.1145/3308558.3313558
+**ShadowBlock: A Lightweight and Stealthy Adblocking Browser**
+Shitong Zhu, Umar Iqbal, Zhongjie Wang, Zhiyun Qian, Zubair Shafiq, and Weiteng Chen. 
+*World Wide Web Conference (WWW '19)*
+ACM, New York, NY, USA, 2483-2493
+DOI: https://doi.org/10.1145/3308558.3313558
