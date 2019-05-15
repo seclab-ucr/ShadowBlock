@@ -14,10 +14,12 @@ Feel free to contact [Shitong Zhu](mailto:shitong.zhu@email.ucr.edu) or open Git
 2. Source Code
 ```
 ├── LICENSE
-├── patches
-│   ├── patch.diff
-│   └── v8_patch.diff
 ├── README.md
+├── patches
+│   ├── patch.diff
+│   └── v8_patch.diff
+├── scripts
+│   └── run_shadowblock.sh
 └── src
     └── shadowblock_elemhide_server.cc
 ```
@@ -25,7 +27,7 @@ Feel free to contact [Shitong Zhu](mailto:shitong.zhu@email.ucr.edu) or open Git
 We provide both the binaries (**download them from GitHub's [`release` tab](https://github.com/seclab-ucr/ShadowBlock/releases)**) and source code (as Chromium patches) to allow for reproducibility and future extensions from research commiunity.
 
 ## Run
-Binaries are located in the [`release`] folder. Please follow the steps below to run them.
+Binaries are located in the **`release`** folder. Please follow the steps below to run them.
 
 1. Depending on the OS you use, unzip the folder `ShadowBlock-Linux` from `ShadowBlock-Linux.tar.gz`, or unzip the folder `ShadowBlock-OSX` from `ShadowBlock-OSX.zip`;
 2. Run bash script `run_shadowblock.sh` in `ShadowBlock-Linux`/`ShadowBlock-OSX` folder to start the browser. Use command `bash run_shadowblock.sh` if you want to create a new user profile in the same directory, or `bash run_shadowblock.sh --use-default-profile` if you want to use the default Chromium user profile. Note that for the first run, you need to wait for several (~5) minutes for Chromium to automatically download the EasyList used by ShadowBlock;
@@ -63,8 +65,7 @@ If you prefer building `shadowblock_elemhide_server` from scratch as well, follo
 ## Reference
 Check our WWW '19 paper for more architectural and technical details [[PDF](https://www.shitong.me/pdfs/www19_shadowblock.pdf)]:
 
-**ShadowBlock: A Lightweight and Stealthy Adblocking Browser**
-Shitong Zhu, Umar Iqbal, Zhongjie Wang, Zhiyun Qian, Zubair Shafiq, and Weiteng Chen. 
-*World Wide Web Conference (WWW '19)*
-ACM, New York, NY, USA, 2483-2493
+**ShadowBlock: A Lightweight and Stealthy Adblocking Browser**  
+Shitong Zhu, Umar Iqbal, Zhongjie Wang, Zhiyun Qian, Zubair Shafiq, and Weiteng Chen  
+*World Wide Web Conference (WWW '19)*  
 DOI: https://doi.org/10.1145/3308558.3313558
