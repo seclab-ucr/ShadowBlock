@@ -1,5 +1,5 @@
 # ShadowBlock
-ShadowBlock is a modified Chromium browser that hides ads in a stealthy manner so it won't trigger any anti-adblocking response from websites, at rather low runtime overhead. Evaluations shows it achieves 100% evasion success rate on a small-scale anti-adblocker dataset and over 98% ad coverage among Alexa Top-1000 websites. At the same time, its average performance (in terms of both Page Load Time and SpeedIndex) is on par with stock Chromium running Adblock Plus. Kindly refer to our [WWW paper](https://www.shitong.me/pdfs/www19_shadowblock.pdf) for more details.
+ShadowBlock is a modified Chromium browser that hides ads in a stealthy manner so it won't trigger any anti-adblocking response from websites, at rather low runtime overhead. Evaluations show it achieves 100% evasion success rate on a small-scale anti-adblocker dataset and over 98% ad coverage among Alexa Top-1000 websites. At the same time, its average performance (in terms of both Page Load Time and SpeedIndex) is on par with stock Chromium running Adblock Plus. Kindly refer to our [WWW paper](https://www.shitong.me/pdfs/www19_shadowblock.pdf) for more details.
 
 **Note we have only tested ShadowBlock on Ubuntu 18.04 (64-bit) and Mac OS X Mojave 10.14.4, but it should be compatible with other major Linux distros with only minor adjustments**
 
